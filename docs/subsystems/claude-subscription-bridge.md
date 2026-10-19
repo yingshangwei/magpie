@@ -53,6 +53,33 @@ is judged as any other. Without it the call was refused 401, never
 reached the run, and every turn with tool results found no run waiting and
 started a new Claude Code told the whole conversation (#1546).
 
+## Process environment
+
+`cleanClaudeEnv` in [`claude_subscription.go`](../../internal/gateway/claude_subscription.go)
+removes inherited `GIT_*`, `OTEL_*`, `ANTHROPIC_CUSTOM_HEADERS` and explicit
+telemetry-enabling variables. Fixed bridge settings replace inherited
+case variants and repeated values. Git reads no system/global config and
+stops parent discovery at the temporary-directory boundary, even when
+`TMPDIR` is in a repository. The run's private working directory must
+itself remain free of a `.git` directory.
+
+Telemetry, error reporting, automatic updates and official marketplace
+autoinstall are disabled alongside the existing nonessential-traffic and
+automatic-memory switches. Account directories, PATH, proxy and CA
+settings are retained. WSL receives these settings through `claudeEnvVars`;
+Git's empty config is `/dev/null` inside Linux, and its ceiling path is
+translated by WSL. This environment contract has not been checked in a
+running Windows/WSL installation.
+
+Warm-up and `/usage` share this preparation
+([`claude_warmup.go`](../../internal/gateway/claude_warmup.go)). `/usage`
+still removes the default nonessential-traffic switch unless the user set
+it, so fresh usage can be requested; the separate telemetry, error and
+update switches stay on. These controls reduce inputs available to the
+official CLI, without inspecting the headers it generates inside TLS.
+[Privacy boundaries and the optional outer launch](../claude-privacy.md)
+describe what is and is not covered.
+
 ## Why turns go on in one run
 
 A run started anew is told the whole conversation in one user message

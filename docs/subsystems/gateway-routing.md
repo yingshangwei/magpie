@@ -1,5 +1,9 @@
 # Gateway routing and fallback
 
+Outbound client diagnostic metadata follows the
+[provider header contract](providers-accounts.md#client-diagnostic-headers),
+including retries and Codex's separate header-copy paths.
+
 The gateway is magpie's local LLM endpoint (`127.0.0.1:3425` by default). It
 serves Chat Completions, Responses, Anthropic Messages and Gemini. It finds
 the provider, key or account and model for each request. When the upstream

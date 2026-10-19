@@ -365,7 +365,8 @@ func sweepBridgeTemps(tempDir string) {
 // prompt and its history written again each time, with only Claude Code's
 // own part (some 2.8k tokens) read.
 //
-// It is in the temp folder, which is in no git repository: Claude Code puts
+// It is below the temp folder, where cleanClaudeEnv stops Git from finding
+// a parent repository: Claude Code puts
 // the status and recent commits of the repository its folder is in into
 // the prompt, so a folder under a home kept in git (dotfiles) would send
 // them with every request, and break the cache whenever they change. The
@@ -517,7 +518,9 @@ func (c claudeCLI) asRoot(env []string) []string {
 // claudeEnvVars are the variables magpie sets for a Claude Code run, which
 // one in WSL is handed (wslrun's Env).
 var claudeEnvVars = []string{"ENABLE_CLAUDEAI_MCP_SERVERS", "DISABLE_AUTO_COMPACT", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-	"DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_AUTOUPDATER", "ANTHROPIC_BETAS"}
+	"DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_AUTOUPDATER", "ANTHROPIC_BETAS",
+	"CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_PROMPT_CACHE_TTL", "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+	"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CEILING_DIRECTORIES/p"}
 
 // env is env for a run in config directory configDir ("" for the account
 // Claude Code is signed in to): for one in WSL, what of it goes in.
@@ -525,6 +528,14 @@ func (c claudeCLI) env(env []string, configDir string) []string {
 	env = inClaudeDir(env, configDir)
 	if c.wsl == nil {
 		return env
+	}
+	// Git runs inside Linux; Windows' NUL is not its empty config file.
+	for i, e := range env {
+		if strings.HasPrefix(e, "GIT_CONFIG_GLOBAL=") {
+			env = slices.Clone(env)
+			env[i] = "GIT_CONFIG_GLOBAL=/dev/null"
+			break
+		}
 	}
 	names := claudeEnvVars
 	if configDir != "" {
@@ -1948,11 +1959,20 @@ func cleanClaudeEnv(env []string) []string {
 		"CLAUDECODE": true, "CLAUDE_CODE_ENTRYPOINT": true, "CLAUDE_CODE_SSE_PORT": true,
 		"CLAUDE_CODE_OAUTH_TOKEN": true, "CLAUDE_CODE_PROMPT_CACHE_TTL": true,
 		"CLAUDE_CODE_EXTRA_BODY": true, "ANTHROPIC_BETAS": true,
+		"ANTHROPIC_CUSTOM_HEADERS": true, "CLAUDE_CODE_ENABLE_TELEMETRY": true,
+		"CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL": true,
+		"ENABLE_CLAUDEAI_MCP_SERVERS":                 true, "DISABLE_AUTO_COMPACT": true,
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": true,
+		"DISABLE_TELEMETRY": true, "DISABLE_ERROR_REPORTING": true, "DISABLE_AUTOUPDATER": true,
+		"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": true,
 	}
-	out := make([]string, 0, len(env)+3)
+	out := make([]string, 0, len(env)+12)
 	for _, e := range env {
 		k, _, _ := strings.Cut(e, "=")
-		if !blocked[k] {
+		k = strings.ToUpper(k)
+		// A neutral cwd alone doesn't stop Git's environment/config from
+		// naming the user's repository, or inherited OTel from exporting it.
+		if !blocked[k] && !strings.HasPrefix(k, "GIT_") && !strings.HasPrefix(k, "OTEL_") {
 			out = append(out, e)
 		}
 	}
@@ -1961,6 +1981,11 @@ func cleanClaudeEnv(env []string) []string {
 	// prompt of all the account's others, and a change to it would undo
 	// the cache from there on
 	return append(out, "ENABLE_CLAUDEAI_MCP_SERVERS=0", "DISABLE_AUTO_COMPACT=1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+		"DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1", "DISABLE_AUTOUPDATER=1",
+		"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
+		// The run's cwd is below TempDir, which the user may keep in Git.
+		"GIT_CEILING_DIRECTORIES="+os.TempDir(),
 		// an hour's cache, as Claude Code writes it on a subscription within
 		// its limits, always: the mark on the caller's instructions
 		// (renderClaudePrompt) is an hour's, which may not follow a 5m one

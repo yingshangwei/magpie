@@ -100,7 +100,6 @@ func claudeUsage(ctx context.Context, configDir string) (string, error) {
 			return strings.HasPrefix(e, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=")
 		})
 	}
-	env = append(env, "DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1", "DISABLE_AUTOUPDATER=1")
 	cmd.Env = binary.env(netproxy.EnvWith(claudeProxy(ctx), env), configDir)
 	var out, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &stderr

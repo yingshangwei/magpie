@@ -141,6 +141,24 @@ that the upstream does not list are named against all listed names and ids;
 listed models keep their `Available` names unchanged
 ([`Exposed`](../../internal/provider/models.go)).
 
+## Client diagnostic headers
+
+`Sign` removes the optional `x-claude-code-wiggly-dove` diagnostic header,
+which can contain repository metadata, before account signing or plain
+authentication. All case variants and repeated values are removed.
+`catalog.PutUserHeader` also omits it, so provider-configured headers cannot
+restore it on a retry or in model discovery. Balance reads omit it in both
+their key and separate-token paths. The gateway's Codex header-copy paths
+apply the same predicate because they can bypass `Sign`. Other headers
+keep their existing handling; a refusal never causes a retry with the
+removed diagnostic restored.
+
+This covers these Magpie-built requests, not metadata generated afterward
+by an independent plugin or the official CLI inside TLS. Offline fixtures
+check signing order, authentication retry, model discovery and balance
+reads; real upstream compatibility remains unverified. See
+[Claude privacy boundaries](../claude-privacy.md).
+
 ## Constraints and failure behavior
 
 An allowance deliberately not requested (a saved Claude account outside

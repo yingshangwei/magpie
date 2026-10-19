@@ -187,6 +187,13 @@ func (p Provider) ListedAPIs(model string) []Protocol {
 // Sign authenticates a request to the provider, refreshing what needs it.
 // Plain providers get their key; accounts get the agent's tokens.
 func (p Provider) Sign(ctx context.Context, req *http.Request, proto Protocol, body []byte) error {
+	// Drop client diagnostics before an account signs the headers. Plain
+	// providers' own headers go through PutUserHeader, which omits them too.
+	for k := range req.Header {
+		if catalog.PrivateClientHeader(k) {
+			delete(req.Header, k)
+		}
+	}
 	if p.Account != nil && settings.AccountDiscoveryOff() {
 		return errAccountDiscoveryOff
 	}

@@ -22,8 +22,17 @@ func PutUserHeader(h http.Header, name, value string) {
 			delete(h, k)
 		}
 	}
+	if PrivateClientHeader(name) {
+		return
+	}
 	if strings.EqualFold(name, "User-Agent") {
 		name = "User-Agent"
 	}
 	h[name] = []string{value}
+}
+
+// PrivateClientHeader identifies optional client diagnostics that can carry
+// the original repository host and path outside message-body redaction.
+func PrivateClientHeader(name string) bool {
+	return strings.EqualFold(name, "x-claude-code-wiggly-dove")
 }

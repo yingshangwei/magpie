@@ -23,6 +23,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/yetone/magpie/internal/catalog"
 )
 
 // balanceSource is where one provider's balance is asked and how the
@@ -1239,7 +1241,9 @@ func balanceRead(ctx context.Context, p Provider) (amount string, parts, split [
 		// where a new-api relay's New-Api-User goes
 		if p.BalanceURL != "" {
 			for k, v := range p.Headers {
-				req.Header.Set(k, withBalanceKey(v, p.Key, false))
+				if !catalog.PrivateClientHeader(k) {
+					req.Header.Set(k, withBalanceKey(v, p.Key, false))
+				}
 			}
 		}
 		req.Header.Set("Authorization", balanceAuthorization(src.token))
@@ -1248,7 +1252,9 @@ func balanceRead(ctx context.Context, p Provider) (amount string, parts, split [
 			req.Header.Set(k, v)
 		}
 		for k, v := range p.Headers {
-			req.Header.Set(k, withBalanceKey(v, p.Key, false))
+			if !catalog.PrivateClientHeader(k) {
+				req.Header.Set(k, withBalanceKey(v, p.Key, false))
+			}
 		}
 	}
 	req.Header.Set("Accept", "application/json")
