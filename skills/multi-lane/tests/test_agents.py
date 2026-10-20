@@ -1,3 +1,7 @@
+import argparse
+import contextlib
+import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +12,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 
 RUNNER = Path(__file__).resolve().parents[1] / "scripts/agents.py"
@@ -58,10 +63,15 @@ record={{"kind":kind,"route":route,"args":args,"cwd":os.getcwd(),"prompt":prompt
          "no_proxy":os.environ.get("NO_PROXY")}}
 if kind=="codex":
  record["config"]=pathlib.Path(record["config_dir"],"config.toml").read_text()
+if "DELAY_CAPTURE" in prompt:
+ time.sleep(5)
 if "SLEEP_CHILD" in prompt:
  child=subprocess.Popen([sys.executable,"-c","import time; time.sleep(30)"])
  record["child_pid"]=child.pid
-(root/(kind+"-capture.json")).write_text(json.dumps(record))
+capture=root/(kind+"-capture.json")
+pending=capture.with_suffix(".tmp")
+pending.write_text(json.dumps(record))
+pending.replace(capture)
 if "FAIL" in prompt:
  print("Magpie transport failed "+token+" "+{endpoint}+" "+route,file=sys.stderr)
  sys.exit(7)
@@ -328,12 +338,49 @@ else:
             time.sleep(0.05)
         self.fail("Child process survived cleanup")
 
-    def test_timeout_terminates_agent_process_group(self):
+    def wait_for_capture(self):
+        capture = self.root / "claude-capture.json"
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if capture.exists():
+                return json.loads(capture.read_text())
+            time.sleep(0.01)
+        self.fail("Fixture did not report a ready child process")
+
+    def test_timeout_before_agent_is_ready_returns_failed_status(self):
+        self.create()
+        self.prompt.write_text("DELAY_CAPTURE SLEEP_CHILD")
+        result = self.cli(*self.run_args("reviewer", timeout="0.4"), expected=1)[-1]
+        self.assertIn("agents", result, result)
+        self.assertEqual(result["agents"][0]["error"]["code"], "TIMEOUT")
+        self.assertFalse((Path(result["output_dir"]) / "reviewer.md").exists())
+
+    def test_timeout_terminates_ready_agent_process_group(self):
         self.create()
         self.prompt.write_text("SLEEP_CHILD")
-        result = self.cli(*self.run_args("reviewer", timeout="0.4"), expected=1)[-1]
+        spec = importlib.util.spec_from_file_location("lane_runtime_test", RUNNER)
+        runtime_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime_module)
+
+        # Expire after the real child reports readiness. A 0.4s wall-clock
+        # deadline can kill a cold Python interpreter before it forks a child.
+        def expire_ready_process(process, input=None, timeout=None):
+            process.stdin.write(input)
+            process.stdin.close()
+            self.wait_for_capture()
+            raise subprocess.TimeoutExpired(process.args, timeout)
+
+        args = argparse.Namespace(agent=["reviewer"], cwd=str(self.work),
+                                  prompt_file=str(self.prompt), output=str(self.root / "output"),
+                                  timeout=0.4)
+        output = io.StringIO()
+        with mock.patch.dict(os.environ, self.env, clear=True), contextlib.redirect_stdout(output):
+            with mock.patch.object(subprocess.Popen, "communicate", expire_ready_process):
+                code = runtime_module.run_agents(runtime_module.Runtime(), args)
+        self.assertEqual(code, 1)
+        result = json.loads(output.getvalue().splitlines()[-1])
         self.assertEqual(result["agents"][0]["error"]["code"], "TIMEOUT")
-        capture = json.loads((self.root / "claude-capture.json").read_text())
+        capture = self.wait_for_capture()
         self.assert_process_gone(capture["pid"])
         self.assert_process_gone(capture["child_pid"])
 
@@ -342,16 +389,15 @@ else:
         self.prompt.write_text("SLEEP_CHILD")
         process = subprocess.Popen([sys.executable, str(RUNNER), *self.run_args("reviewer")],
                                    env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        capture_path = self.root / "claude-capture.json"
-        for _ in range(100):
-            if capture_path.exists():
-                break
-            time.sleep(0.02)
-        self.assertTrue(capture_path.exists())
-        process.send_signal(signum)
-        stdout, stderr = process.communicate(timeout=10)
+        try:
+            capture = self.wait_for_capture()
+            process.send_signal(signum)
+            stdout, stderr = process.communicate(timeout=10)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
         self.assertEqual(process.returncode, 130, stdout + stderr)
-        capture = json.loads(capture_path.read_text())
         self.assert_process_gone(capture["pid"])
         self.assert_process_gone(capture["child_pid"])
 
