@@ -9,6 +9,13 @@ files in that agent's format, and takes back only what it wrote. Everything
 else in those files stays as it was. Package `internal/library` also gives
 agents RTK, a CLI that cuts shell output down before the model reads it.
 
+The repository also supplies the [multi-lane skill](../multi-lane.md) in
+[`skills/multi-lane`](../../skills/multi-lane). The existing skill installer
+distributes its workflow and Python executor as one folder. Its machine
+connection configuration, credentials, named-agent profiles and run state
+live outside that folder and are not part of a Library skill export.
+Installing the skill does not configure a gateway or start an agent.
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |
