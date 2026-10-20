@@ -1193,6 +1193,9 @@ func Handler(w Windows, gw *gateway.Server) http.Handler {
 		settings.CarryPerModel(&in, &cur)
 		in.LAN, in.LANKey = cur.LAN, cur.LANKey
 		in.LANKeyID = cur.LANKeyID
+		// Configured through magpie model claude-picker, not this page.
+		in.ClaudeMinimalModelPicker = cur.ClaudeMinimalModelPicker
+
 		in.Port = cur.Port                                 // set on its own (port below), which moves the gateway
 		in.CORSOrigins = cur.CORSOrigins                   // set on its own (cors below)
 		in.AllowIPs = cur.AllowIPs                         // set on its own (allowips below)

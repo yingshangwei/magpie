@@ -937,10 +937,13 @@ func claudeIn(at place) *Agent {
 		// picker took the name alone, so none of the setting's three ways
 		// changed /model (love1sbug on X). A description that would say the
 		// provider the label already says is left "via magpie".
-		labels := listLabels("claude")
+		labels, minimal, err := claudePickerLabels()
+		if err != nil {
+			return err
+		}
 		rows := []any{}
 		for _, o := range viaMagpie("claude", "") {
-			if slices.ContainsFunc(onTier, func(v string) bool { return claudeSameModel(v, o.Value) }) {
+			if !minimal && slices.ContainsFunc(onTier, func(v string) bool { return claudeSameModel(v, o.Value) }) {
 				continue
 			}
 			label, note := cmp.Or(labels[o.Ref], o.Label, o.Value), o.Note
@@ -956,13 +959,22 @@ func claudeIn(at place) *Agent {
 					note = o.Group + " · " + note
 				}
 			}
+			if minimal {
+				note = claudePickerBlankDescription
+			}
 			rows = append(rows, map[string]any{"model": spell(mark1M(o.Value)), "label": label, "description": note})
 		}
 		if len(rows) == 0 {
 			return dropPicker()
 		}
 		stash(map[string]string{pickerKey: "1"})
-		return edit.SetJSON(path, edit.KV{Path: "modelPicker", Value: map[string]any{"options": rows}})
+		picker := map[string]any{"options": rows}
+		if minimal {
+			// Otherwise Claude Code adds its built-in and discovered rows,
+			// which can expose the route ids beside these curated labels.
+			picker["replaceBuiltInOptions"] = true
+		}
+		return edit.SetJSON(path, edit.KV{Path: "modelPicker", Value: picker})
 	}
 	// writeCaps says what magpie's models can do, the ones in models first;
 	// Claude Desktop's ids too while it runs on magpie, its Code tab being

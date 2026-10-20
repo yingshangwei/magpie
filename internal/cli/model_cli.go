@@ -66,6 +66,9 @@ const modelUsage = `usage:
                                                  own, a name you gave a model just as you wrote it, "Opus 5.5",
                                                  the others as on; off, "Sol" alone — but two a list would name
                                                  the same keep it
+  magpie model claude-picker [simple|default]    Claude Code's model list: simple shows names alone, with
+                                                 stable vN source markers only for names shared by sources;
+                                                 no account or provider descriptions. Default uses suffix.
   magpie model compact [on|off|<size>]           whether Codex and Claude Code compact a long conversation at
                                                  272K: on, as by default, for a model of a longer window (in
                                                  Claude Code, a Claude model runs to its own); off, at the
@@ -109,6 +112,8 @@ func modelCmd(args []string) error {
 		return modelWires()
 	case "suffix", "suffixes":
 		return modelSuffix(args[1:])
+	case "claude-picker":
+		return modelClaudePicker(args[1:])
 	case "compact", "full-context":
 		return modelCompact(args[1:])
 	case "context", "ctx":
@@ -617,6 +622,31 @@ func modelPrices() error {
 // modelSuffix says whether the agents' lists name models with their
 // providers' after them, all but the names the user gave (#92), or none
 // (#335), or sets it.
+func modelClaudePicker(args []string) error {
+	s, err := settings.LoadChecked()
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		if s.ClaudeMinimalModelPicker {
+			fmt.Println("simple")
+		} else {
+			fmt.Println("default")
+		}
+		return nil
+	}
+	if len(args) != 1 || args[0] != "simple" && args[0] != "default" {
+		return fmt.Errorf("usage: magpie model claude-picker [simple|default]")
+	}
+	s.ClaudeMinimalModelPicker = args[0] == "simple"
+	if err := settings.Save(s); err != nil {
+		return err
+	}
+	catalog.Touched()
+	fmt.Println(green.Render("✓"), "Claude Code model picker:", args[0])
+	return nil
+}
+
 func modelSuffix(args []string) error {
 	if len(args) == 0 {
 		switch provider.SuffixMode() {

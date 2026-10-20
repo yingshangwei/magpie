@@ -411,6 +411,10 @@ type Settings struct {
 	// it (#92: "Opus 5.5", not "Opus 5.5 · Claude Code"), the vendor's names
 	// keeping their provider's after them (see provider.Labels).
 	PlainOwnNames bool `json:"plainOwnNames,omitempty"`
+	// ClaudeMinimalModelPicker leaves Claude Code's model list with names
+	// alone and no source/account descriptions. Names shared by different
+	// sources get stable vN suffixes, kept by the agent's picker writer.
+	ClaudeMinimalModelPicker bool `json:"claudeMinimalModelPicker,omitempty"`
 	// BareModelIDs has the gateway's /v1/models list each model by its id
 	// without the provider as well ("gpt-5.6-sol" beside
 	// "codex/gpt-5.6-sol"), for clients moved from another proxy that ask
