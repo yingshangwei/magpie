@@ -49,8 +49,8 @@ func accountAgent(p provider.Provider) string {
 // the one Claude Code and its Agent SDK (Claude Desktop's chats) send: its
 // billing line or the SDK's identity line anywhere in the system
 // instruction turns the request away, on every model, while the same words
-// in a message go through (#666). magpie doesn't hide them from Google; it
-// says why, so no one chases a quota that isn't spent.
+// in a message go through (#666). Judge the system actually sent: this
+// fork adapts Claude Code's leading metadata for Gemini 4 before this check.
 func antigravityTurnsAway(system string) bool {
 	return strings.Contains(system, "x-anthropic-billing-header:") ||
 		strings.Contains(system, "built on Anthropic's Claude Agent SDK")
@@ -85,7 +85,7 @@ const agForeseeing = 6 * time.Hour
 // Antigravity has refused it within agForeseeing. It holds for exactly the
 // requests antigravityTurnedAway would tell as the refusal, and it changes
 // nothing about the account.
-func (s *Server) antigravityForeseen(p provider.Provider, from provider.Protocol, body []byte) bool {
+func (s *Server) antigravityForeseen(p provider.Provider, model string, from provider.Protocol, body []byte) bool {
 	if accountAgent(p) != "antigravity" {
 		return false
 	}
@@ -94,7 +94,7 @@ func (s *Server) antigravityForeseen(p provider.Provider, from provider.Protocol
 		return false
 	}
 	req, err := parse(from, body)
-	return err == nil && antigravityTurnsAway(req.System)
+	return err == nil && antigravityTurnsAway(antigravityClaudeSystem(p, model, req.System))
 }
 
 // antigravityTurnedAwayHint is what magpie adds to Antigravity's words, after

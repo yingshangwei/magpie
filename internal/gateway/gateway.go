@@ -2401,7 +2401,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				attemptBody, _ = textOnlyBody(from, body) // omit images in prior turns and tool results
 			}
 		}
-		if !last && s.antigravityForeseen(c.p, from, attemptBody) {
+		if !last && s.antigravityForeseen(c.p, c.model, from, attemptBody) {
 			// Antigravity would only turn it away, as it did lately, and
 			// someone after it may answer: it isn't asked, and nothing is
 			// held against the account (#2156). If nobody after it answers
@@ -5505,6 +5505,11 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request, p provider.Pr
 	request, err := parse(from, body)
 	if err != nil {
 		return writeError(w, from, 400, err.Error()), err.Error()
+	}
+	if to == provider.CodeAssist {
+		// Adapt this attempt's parsed copy so retries and error classification
+		// see exactly the system sent, while another provider keeps the input.
+		request.System = antigravityClaudeSystem(p, model, request.System)
 	}
 	// a Grok model's 2500.0 in a call's arguments, which Codex turns away
 	// (grok_integral.go, #1431)

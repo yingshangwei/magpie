@@ -19,7 +19,8 @@ import (
 // asked on Anthropic's Messages API (Anthropic's own, a relay's, Bedrock's),
 // as Claude Code sent it. The Claude subscription's run sends its own
 // (withoutBillingHeader), another magpie decides for the provider it picks,
-// and Code Assist is sent it as before (antigravityTurnsAway, #666).
+// and Code Assist keeps it except for this fork's Antigravity Gemini 4
+// compatibility path (antigravityClaudeSystem, #666).
 
 // billingLine is a system block that is the billing line and nothing else.
 var billingLine = regexp.MustCompile(`^x-anthropic-billing-header:(\s*[A-Za-z_]+=[^;\s]*;)*\s*$`)
