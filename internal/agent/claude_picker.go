@@ -22,6 +22,19 @@ import (
 // after trim while rendering no source text in the picker.
 const claudePickerBlankDescription = "\u200b"
 
+// Native Claude, GPT and Gemini rows need no source text. Other models
+// name the provider serving them, not their author or a signed-in account.
+func claudePickerDescription(o Option) string {
+	pid, model, _ := strings.Cut(cmp.Or(o.Ref, o.Value), "/")
+	switch {
+	case pid == "claude" && strings.HasPrefix(model, "claude-"),
+		pid == "codex" && strings.HasPrefix(model, "gpt-"),
+		(pid == "antigravity" || pid == "gemini") && strings.HasPrefix(model, "gemini-"):
+		return claudePickerBlankDescription
+	}
+	return "Source: " + cmp.Or(o.Group, pid)
+}
+
 // A suffix identifies a source, not a row or an account. All models of a
 // provider share one; a routing group has its own since it may select more
 // than one provider. Keep departed sources too, so their numbers are never

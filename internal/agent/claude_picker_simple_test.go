@@ -77,7 +77,12 @@ func TestClaudeMinimalPicker(t *testing.T) {
 	}
 	for id := range before {
 		r, ok := got[id]
-		if !ok || r.Model != id || r.Description != claudePickerBlankDescription ||
+		source, _, _ := strings.Cut(id, "/")
+		description := "Source: " + map[string]string{
+			"source-a": "source-a CLI", "source-b": "source-b CLI",
+			"relay": "Relay", "group": "Routing groups",
+		}[source]
+		if !ok || r.Model != id || r.Description != description ||
 			strings.Contains(r.Label, "CLI") || strings.Contains(r.Label, "magpie") {
 			t.Errorf("route or minimal display for %s: %+v", id, r)
 		}
@@ -119,6 +124,9 @@ func TestClaudeMinimalPicker(t *testing.T) {
 	}
 	after, _ := read()
 	for id, r := range got {
+		if strings.HasPrefix(id, "source-a/") {
+			r.Description = "Source: Renamed"
+		}
 		if after[id] != r {
 			t.Errorf("refresh or reordering changed %s: %+v -> %+v", id, r, after[id])
 		}

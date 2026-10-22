@@ -68,7 +68,8 @@ const modelUsage = `usage:
                                                  the same keep it
   magpie model claude-picker [simple|default]    Claude Code's model list: simple shows names alone, with
                                                  stable vN source markers only for names shared by sources;
-                                                 no account or provider descriptions. Default uses suffix.
+                                                 source descriptions for relayed models, no accounts.
+                                                 Native Claude, GPT and Gemini stay plain. Default uses suffix.
   magpie model compact [on|off|<size>]           whether Codex and Claude Code compact a long conversation at
                                                  272K: on, as by default, for a model of a longer window (in
                                                  Claude Code, a Claude model runs to its own); off, at the

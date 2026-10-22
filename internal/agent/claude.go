@@ -960,7 +960,7 @@ func claudeIn(at place) *Agent {
 				}
 			}
 			if minimal {
-				note = claudePickerBlankDescription
+				note = claudePickerDescription(o)
 			}
 			rows = append(rows, map[string]any{"model": spell(mark1M(o.Value)), "label": label, "description": note})
 		}
