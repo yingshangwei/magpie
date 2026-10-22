@@ -153,6 +153,7 @@ func TestAffinityKeepsAnHourCachePastFiveMinutes(t *testing.T) {
 				t.Errorf("%s: kept for an hour %d, want %d", c.name, st.hour.tokens, want)
 			}
 			st.at = st.at.Add(-c.ago)
+			st.cacheAt = st.cacheAt.Add(-c.ago)
 			st.hour.at = st.hour.at.Add(-c.ago)
 			sticks.m[k] = st
 		}

@@ -10,11 +10,11 @@ const { chromium, webkit } = require("playwright");
 // cache just written doesn't read as "read 0 tokens", and one moved says
 // it wrote too little as well.
 const words = {
-  en: { kept: ["read 0 tokens", "wrote 3.0k"], moved: ["read only 300 tokens", "wrote 200"] },
-  zh: { kept: ["读取了此会话的 0 tokens", "写入了 3.0k tokens"], moved: ["只从缓存读取了 300 tokens", "写入了 200 tokens"] },
-  "zh-TW": { kept: ["讀取了此會話的 0 tokens", "寫入了 3.0k tokens"], moved: ["只從快取讀取了 300 tokens", "寫入了 200 tokens"] },
-  ja: { kept: ["0 トークンをキャッシュから読み", "3.0k トークンを書き込みました"], moved: ["300 トークン", "書き込んだのは 200 トークン"] },
-  de: { kept: ["0 Token dieser Unterhaltung", "3.0k hineingeschrieben"], moved: ["nur 300 Token", "200 hineingeschrieben"] },
+  en: { kept: ["read 0 tokens", "wrote 3.0k", "within its estimated lifetime"], moved: ["read only 300 tokens", "wrote 200"], cold: "past its estimated lifetime" },
+  zh: { kept: ["读取了此会话的 0 tokens", "写入了 3.0k tokens", "估计有效期内"], moved: ["只从缓存读取了 300 tokens", "写入了 200 tokens"], cold: "已超过估计有效期" },
+  "zh-TW": { kept: ["讀取了此會話的 0 tokens", "寫入了 3.0k tokens", "估計有效期內"], moved: ["只從快取讀取了 300 tokens", "寫入了 200 tokens"], cold: "已超過估計有效期" },
+  ja: { kept: ["0 トークンをキャッシュから読み", "3.0k トークンを書き込みました", "推定有効期間内"], moved: ["300 トークン", "書き込んだのは 200 トークン"], cold: "推定有効期間が過ぎた" },
+  de: { kept: ["0 Token dieser Unterhaltung", "3.0k hineingeschrieben", "innerhalb seiner geschätzten Lebensdauer"], moved: ["nur 300 Token", "200 hineingeschrieben"], cold: "geschätzte Lebensdauer überschritten" },
 };
 
 function routes(now, why, read, wrote) {
@@ -76,6 +76,19 @@ for (const engine of process.env.BROWSER ? [process.env.BROWSER] : ["chromium", 
         text = await story();
         for (const w of words[lang].moved) assert.ok(text.includes(w), `moved: ${w} not in\n${text}`);
         assert.doesNotMatch(text, /\{[rwn]\}/);
+
+        // The gateway's cold decision can be for a five-minute or one-hour
+        // cache. The reply's completion time alone cannot say which expired.
+        for (const age of [6, 61]) {
+          rs = routes(now, "cold", 0, 3000);
+          rs[0].affinity.at = new Date(now.getTime() - age * 60000).toISOString();
+          text = await story();
+          assert.ok(text.includes(words[lang].cold), `cold: ${words[lang].cold} not in\n${text}`);
+          assert.doesNotMatch(text, /\{(?:who|ago|r|w)\}/);
+        }
+        rs = routes(now, "no-cache", undefined, undefined);
+        text = await story();
+        assert.doesNotMatch(text, /NaN|undefined|\{[rwn]\}/);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, "no sideways scroll");
         assert.deepEqual(errors, []);
       });

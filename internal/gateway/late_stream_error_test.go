@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yetone/magpie/internal/provider"
 )
@@ -96,8 +97,8 @@ func TestUnansweredForgetsTheAccountWhenItsModelIsGone(t *testing.T) {
 	fresh(t)
 	const key = "group/g|s1"
 	flaky := candidate{p: provider.Provider{ID: "flaky", Key: "broken"}, rest: "flaky"}
-	answered(key, candidate{p: provider.Provider{ID: "flaky", Key: "broken"}, model: "m", rest: "flaky"}, 1, Usage{})
-	answered(key+"-other", candidate{p: provider.Provider{ID: "steady", Key: "fine"}, model: "m", rest: "steady"}, 1, Usage{})
+	answered(key, candidate{p: provider.Provider{ID: "flaky", Key: "broken"}, model: "m", rest: "flaky"}, 1, Usage{}, time.Now())
+	answered(key+"-other", candidate{p: provider.Provider{ID: "steady", Key: "fine"}, model: "m", rest: "steady"}, 1, Usage{}, time.Now())
 	unanswered(key, candidate{p: flaky.p, model: "m2", rest: flaky.rest}) // the model that answered is gone from the group; the account isn't
 	sticks.Lock()
 	_, kept := sticks.m[key]

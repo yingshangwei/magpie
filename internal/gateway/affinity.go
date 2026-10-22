@@ -70,8 +70,8 @@ type Affinity struct {
 	Last       string    `json:"last,omitempty"`   // who answered the conversation last
 	LastTurn   int       `json:"lastTurn,omitempty"`
 	At         time.Time `json:"at,omitempty"`         // when
-	CacheRead  int       `json:"cacheRead,omitempty"`  // tokens that answer read from the vendor's cache
-	CacheWrite int       `json:"cacheWrite,omitempty"` // and wrote to it, or was sent where none is
+	CacheRead  int       `json:"cacheRead,omitempty"`  // tokens the latest cache observation read
+	CacheWrite int       `json:"cacheWrite,omitempty"` // and wrote, or was sent where none is
 	Kept       bool      `json:"kept,omitempty"`       // Last was put first for it
 	// Why it was kept — "session", "turn", "cache" — or not: "off", "first"
 	// (nobody has answered it yet), "new-turn", "no-cache" (the vendor
@@ -88,6 +88,7 @@ type stick struct {
 	effort     string // the effort the group's member it answered as is fixed at
 	turn       int
 	at         time.Time
+	cacheAt    time.Time // when the answering attempt began, after its queue
 	cacheRead  int
 	cacheWrite int
 	hour       hourCache
@@ -104,23 +105,39 @@ type hourCache struct {
 	at     time.Time
 }
 
-// after is what is kept for an hour once a reply with usage u came at now.
+// after is what is kept for an hour once a request begun at started
+// answered with usage u. Generating the reply does not extend the cache.
 // A reply that wrote for an hour keeps all it read and that; one that read
 // the whole of what was kept refreshes it; one that read less no longer
 // starts with it (moved, compacted), and it is gone.
-func (h hourCache) after(u Usage, now time.Time) hourCache {
+func (h hourCache) after(u Usage, started time.Time) hourCache {
 	switch {
 	case u.CacheWrite1h > 0:
-		return hourCache{tokens: u.CacheRead + u.CacheWrite1h, at: now}
-	case h.tokens > 0 && now.Sub(h.at) <= cacheHour && u.CacheRead >= h.tokens:
-		return hourCache{tokens: h.tokens, at: now}
+		return hourCache{tokens: u.CacheRead + u.CacheWrite1h, at: started}
+	case h.tokens > 0 && !started.Before(h.at) && started.Sub(h.at) <= cacheHour && u.CacheRead >= h.tokens:
+		return hourCache{tokens: h.tokens, at: started}
 	}
 	return hourCache{}
 }
 
 // warm is whether enough is still kept at now to stay for.
 func (h hourCache) warm(now time.Time) bool {
-	return h.tokens >= cacheWorth && now.Sub(h.at) <= cacheHour
+	return h.tokens >= cacheWorth && !now.Before(h.at) && now.Sub(h.at) <= cacheHour
+}
+
+// cachedAt falls back to the old estimate for sticks written before the
+// request's start was kept. The next answer replaces that estimate.
+func (st stick) cachedAt() time.Time {
+	if !st.cacheAt.IsZero() {
+		return st.cacheAt
+	}
+	return st.at
+}
+
+// cacheWarm uses the short, estimated window unless the vendor reported
+// enough of the prompt kept for an hour. Neither starts when a reply ends.
+func cacheWarm(at time.Time, hour hourCache, now time.Time) bool {
+	return !now.Before(at) && now.Sub(at) <= cacheCold || hour.warm(now)
 }
 
 var sticks = struct {
@@ -149,6 +166,7 @@ type savedStick struct {
 	Effort    string    `json:"effort,omitempty"`
 	Turn      int       `json:"turn,omitempty"`
 	At        time.Time `json:"at"`
+	CacheAt   time.Time `json:"cacheAt,omitzero"`
 	CacheRead int       `json:"cacheRead,omitempty"`
 	// CacheWrite is absent from a file written before it was kept, and
 	// reads as 0: such a stick is judged by what was read, as it was then
@@ -189,7 +207,7 @@ func stickOf(key string) (stick, bool) {
 		if st, ok := sticks.m[k]; ok && !st.at.Before(v.At) {
 			continue
 		}
-		sticks.m[k] = stick{rest: v.Rest, who: v.Who, model: v.Model, effort: v.Effort, turn: v.Turn, at: v.At, cacheRead: v.CacheRead, cacheWrite: v.CacheWrite,
+		sticks.m[k] = stick{rest: v.Rest, who: v.Who, model: v.Model, effort: v.Effort, turn: v.Turn, at: v.At, cacheAt: v.CacheAt, cacheRead: v.CacheRead, cacheWrite: v.CacheWrite,
 			hour: hourCache{tokens: v.CacheHour, at: v.CacheHourAt}}
 	}
 	st, ok := sticks.m[key]
@@ -210,7 +228,7 @@ func saveSticks() {
 	sticks.Lock()
 	for k, st := range sticks.m {
 		if now.Sub(st.at) <= stickKeep {
-			ks = append(ks, kept{k, savedStick{st.rest, st.who, st.model, st.effort, st.turn, st.at, st.cacheRead, st.cacheWrite, st.hour.tokens, st.hour.at}})
+			ks = append(ks, kept{k, savedStick{st.rest, st.who, st.model, st.effort, st.turn, st.at, st.cacheAt, st.cacheRead, st.cacheWrite, st.hour.tokens, st.hour.at}})
 		}
 	}
 	sticks.Unlock()
@@ -445,7 +463,7 @@ func affine(scope, mode string, rotate bool, in http.Header, from provider.Proto
 		// what it wrote counts with what it read: the cache a first turn
 		// built is there for the next to read
 		a.Why = "no-cache"
-	case time.Since(st.at) > cacheCold && !st.hour.warm(time.Now()):
+	case !cacheWarm(st.cachedAt(), st.hour, time.Now()):
 		// past five minutes, kept still where the vendor said it
 		// keeps enough for an hour (#2302)
 		a.Why = "cold"
@@ -578,7 +596,7 @@ func after(cs []candidate, pl planned, at int) ([]candidate, planned) {
 // the next turn stays to read it rather than moving as no-cache and
 // building it afresh elsewhere. A reply that reports no usage at all
 // (Input 0) counts as no cache, as it did.
-func answered(key string, c candidate, turn int, u Usage) {
+func answered(key string, c candidate, turn int, u Usage, started time.Time) {
 	cacheRead, cacheWrite := u.CacheRead, u.CacheWrite
 	if cacheRead == 0 && cacheWrite == 0 {
 		cacheWrite = u.Input
@@ -588,9 +606,17 @@ func answered(key string, c candidate, turn int, u Usage) {
 	var hour hourCache
 	if st, ok := sticks.m[key]; ok && st.who == c.who() && st.model == c.model {
 		hour = st.hour // a cache is the account's, of the model
+		if !st.cacheAt.IsZero() && st.cacheAt.After(started) {
+			// An earlier request finished last. Remember its answerer
+			// without rolling back the newer request's cache observation.
+			started, cacheRead, cacheWrite = st.cacheAt, st.cacheRead, st.cacheWrite
+		} else {
+			hour = hour.after(u, started)
+		}
+	} else {
+		hour = hour.after(u, started)
 	}
-	hour = hour.after(u, now)
-	sticks.m[key] = stick{rest: c.rest, who: c.who(), model: c.model, effort: c.effort, turn: turn, at: now, cacheRead: cacheRead, cacheWrite: cacheWrite, hour: hour}
+	sticks.m[key] = stick{rest: c.rest, who: c.who(), model: c.model, effort: c.effort, turn: turn, at: now, cacheAt: started, cacheRead: cacheRead, cacheWrite: cacheWrite, hour: hour}
 	delete(sticks.opening, key)
 	if len(sticks.m) > 4096 {
 		for k, st := range sticks.m {

@@ -107,10 +107,12 @@ type turnRule struct {
 	intent string
 	effort string // the reasoning it picked for the turn
 	wanted string // what it would have picked, kept from (RuleHit.Wanted)
-	// answered is when the vendor last answered the conversation: its
-	// cache of it is read from then (ruleAnswered)
-	answered time.Time
-	size     int // how long magpie took the conversation's last request to be (estimate)
+	// answered is when the vendor last answered the conversation.
+	answered   time.Time
+	cacheAt    time.Time // answering attempt's start on ruleClock
+	cacheWho   string
+	cacheModel string
+	size       int // how long magpie took the conversation's last request to be (estimate)
 	// hour is what the vendor said it keeps of the conversation for an
 	// hour (Anthropic's 1-hour cache writes), warm past cacheCold (#2302)
 	hour hourCache
@@ -253,7 +255,13 @@ func ruleFor(key string, g provider.Group, ms []provider.Member, req *Request, a
 		}
 		if grown, ok := outgrown(g, ctx, hit, q); ok {
 			hit = grown
-			turnRules.m[key] = turnRule{turn: turn, use: hit.Use, n: hit.N, at: now, input: tr.input, intent: q.Intent, effort: tr.effort, wanted: tr.wanted, answered: tr.answered, size: size, hour: tr.hour}
+			if cur, ok := turnRules.m[key]; ok {
+				// A reply may have finished while memberContexts read the
+				// catalog. Keep its newer cache observation.
+				tr.input, tr.answered, tr.cacheAt, tr.hour = cur.input, cur.answered, cur.cacheAt, cur.hour
+				tr.cacheWho, tr.cacheModel = cur.cacheWho, cur.cacheModel
+			}
+			turnRules.m[key] = turnRule{turn: turn, use: hit.Use, n: hit.N, at: now, input: tr.input, intent: q.Intent, effort: tr.effort, wanted: tr.wanted, answered: tr.answered, cacheAt: tr.cacheAt, cacheWho: tr.cacheWho, cacheModel: tr.cacheModel, size: size, hour: tr.hour}
 			return hit
 		}
 		if had {
@@ -321,11 +329,13 @@ func ruleFor(key string, g provider.Group, ms []provider.Member, req *Request, a
 	}
 	turnRules.Lock()
 	defer turnRules.Unlock()
-	input, answered, hour := tr.input, tr.answered, tr.hour
+	input, answered, cached, hour := tr.input, tr.answered, tr.cacheAt, tr.hour
+	cacheWho, cacheModel := tr.cacheWho, tr.cacheModel
 	if cur, ok := turnRules.m[key]; ok {
-		input, answered, hour = cur.input, cur.answered, cur.hour // answered while the classifier was asked
+		input, answered, cached, hour = cur.input, cur.answered, cur.cacheAt, cur.hour // answered while the classifier was asked
+		cacheWho, cacheModel = cur.cacheWho, cur.cacheModel
 	}
-	turnRules.m[key] = turnRule{turn: turn, use: hit.Use, n: hit.N, at: now, input: input, intent: q.Intent, effort: hit.Pick, wanted: hit.Wanted, answered: answered, size: size, hour: hour}
+	turnRules.m[key] = turnRule{turn: turn, use: hit.Use, n: hit.N, at: now, input: input, intent: q.Intent, effort: hit.Pick, wanted: hit.Wanted, answered: answered, cacheAt: cached, cacheWho: cacheWho, cacheModel: cacheModel, size: size, hour: hour}
 	if len(turnRules.m) > 4096 {
 		for k, tr := range turnRules.m {
 			if now.Sub(tr.at) > stickKeep {
@@ -402,7 +412,7 @@ func alsoIDs(m provider.Member) []string {
 
 // ruleAnswered keeps what the vendor counted a conversation's request as,
 // for its next turn's rules to go by.
-func ruleAnswered(key string, u Usage) {
+func ruleAnswered(key string, c candidate, u Usage, started time.Time) {
 	n := u.Input + u.CacheRead + u.CacheWrite
 	if n <= 0 {
 		return
@@ -411,7 +421,13 @@ func ruleAnswered(key string, u Usage) {
 	defer turnRules.Unlock()
 	if tr, ok := turnRules.m[key]; ok {
 		now := ruleClock()
-		tr.input, tr.answered, tr.hour = n, now, tr.hour.after(u, now)
+		tr.input, tr.answered = n, now
+		if tr.cacheWho != c.who() || tr.cacheModel != c.model {
+			tr.cacheAt, tr.hour = time.Time{}, hourCache{}
+		}
+		if !tr.cacheAt.After(started) {
+			tr.cacheAt, tr.hour, tr.cacheWho, tr.cacheModel = started, tr.hour.after(u, started), c.who(), c.model
+		}
 		turnRules.m[key] = tr
 	}
 }
@@ -425,7 +441,7 @@ func ruleAnswered(key string, u Usage) {
 // while the cache is warm the effort only goes up — a hard turn still gets
 // the reasoning it needs, and a conversation pays for at most one miss per
 // level — and a lower pick waits for a turn the cache is lost to anyway:
-// one after cacheCold without an answer (an hour, where the vendor said it
+// one after cacheCold since the answering attempt began (an hour, where it
 // keeps the conversation that long: tr.hour, #2302), or after the agent
 // compacted the conversation (it is now under half as long as its last
 // request).
@@ -440,7 +456,10 @@ func keepsEffort(tr turnRule, pick string, tokens int, now time.Time) bool {
 	if tr.answered.After(last) {
 		last = tr.answered
 	}
-	if now.Sub(last) > cacheCold && !tr.hour.warm(now) {
+	if !tr.cacheAt.IsZero() {
+		last = tr.cacheAt
+	}
+	if !cacheWarm(last, tr.hour, now) {
 		return false
 	}
 	if tr.size > 0 && tokens < tr.size/2 {
