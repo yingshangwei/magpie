@@ -28,6 +28,7 @@ const (
 	ToolResult Kind = "tool_result"
 	Thinking   Kind = "thinking"
 	Search     Kind = "web_search" // a web search run for the model: its query and hits
+	Advisor    Kind = "advisor"    // an Anthropic advisor call or result, kept whole
 )
 
 // Part is one block of a message.
@@ -64,6 +65,8 @@ type Part struct {
 	// sealResponses).
 	Sealed   json.RawMessage
 	SealedBy string
+	// AdvisorRaw is an advisor server block, including opaque encrypted results.
+	AdvisorRaw json.RawMessage
 
 	// web_search: Text is the query
 	Hits []Hit
@@ -149,6 +152,8 @@ type Request struct {
 	// leanPrompt has the Claude bridge give the caller's instructions as
 	// the run's system prompt, in place of Claude Code's (ClaudeLeanPrompt).
 	leanPrompt bool
+	// advisor is the upstream model requested by a Claude subscription client.
+	advisor string
 
 	Model      string
 	System     string
@@ -291,6 +296,8 @@ const (
 	// keepaliveGap of nothing else: a reply read in rounds (searchReply)
 	// keeps its client alive with it as a translated stream does (#2316)
 	KAlive
+	// KAdvisor: Text is a complete Anthropic advisor server block.
+	KAdvisor
 )
 
 // Event is one thing a streaming reply said.
@@ -326,10 +333,12 @@ type Event struct {
 
 // Usage counts tokens.
 type Usage struct {
-	Input      int `json:"input"`
-	Output     int `json:"output"`
-	CacheRead  int `json:"cache_read"`
-	CacheWrite int `json:"cache_write"`
+	// Iterations keeps Anthropic's per-model usage, including advisor sub-calls.
+	Iterations *[]json.RawMessage `json:"iterations,omitempty"`
+	Input      int                `json:"input"`
+	Output     int                `json:"output"`
+	CacheRead  int                `json:"cache_read"`
+	CacheWrite int                `json:"cache_write"`
 	// CacheWrite1h is how many of the CacheWrite tokens were written to
 	// be kept for an hour, which Anthropic bills at 2× input where a
 	// 5-minute write is 1.25×, when its usage says so (cache_creation's
@@ -396,6 +405,9 @@ func (u Usage) prompt() int {
 }
 
 func (u *Usage) add(v Usage) {
+	if v.Iterations != nil && len(*v.Iterations) > 0 {
+		u.Iterations = v.Iterations
+	}
 	if v.Input > 0 {
 		u.Input = v.Input
 	}
@@ -568,6 +580,9 @@ func (c *collector) add(ev Event) {
 	case KSearch:
 		c.closeTool()
 		c.res.Parts = append(c.res.Parts, Part{Kind: Search, Text: ev.Text, Hits: ev.Hits})
+	case KAdvisor:
+		c.closeTool()
+		c.res.Parts = append(c.res.Parts, Part{Kind: Advisor, AdvisorRaw: json.RawMessage(ev.Text)})
 	case KImage:
 		c.closeTool()
 		c.res.Parts = append(c.res.Parts, Part{Kind: Image, MediaType: ev.Name, Data: ev.Text})

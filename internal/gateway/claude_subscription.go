@@ -166,7 +166,8 @@ type subscriptionRun struct {
 	safeguards    json.RawMessage
 	safeguardBeta string
 	clientMarks   bool
-	lean          bool // started with leanSystem as its system prompt
+	lean          bool   // started with leanSystem as its system prompt
+	advisor       string // fixed for the run, including a resumed saved session
 	cacheTail     string
 	cachePrefix   cachePrefix
 	timer         *time.Timer
@@ -518,6 +519,7 @@ func (c claudeCLI) asRoot(env []string) []string {
 // claudeEnvVars are the variables magpie sets for a Claude Code run, which
 // one in WSL is handed (wslrun's Env).
 var claudeEnvVars = []string{"ENABLE_CLAUDEAI_MCP_SERVERS", "DISABLE_AUTO_COMPACT", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+	"CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL",
 	"DISABLE_TELEMETRY", "DISABLE_ERROR_REPORTING", "DISABLE_AUTOUPDATER", "ANTHROPIC_BETAS",
 	"CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_PROMPT_CACHE_TTL", "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
 	"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_CEILING_DIRECTORIES/p"}
@@ -641,6 +643,9 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 		"magpie": map[string]any{"command": exe, "args": []string{"claude-mcp-helper", callbackPath, toolsPath}},
 	}})
 	args := claudeCLIArgs(model, string(mcpConfig), req.Effort, req.WebSearch)
+	if req.advisor != "" {
+		args = append(args, "--advisor", req.advisor)
+	}
 	if req.leanPrompt {
 		// in a file of the run's own: instructions can be longer than
 		// Windows lets a command line be
@@ -708,6 +713,11 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	cmd := binary.command(context.Background(), args...)
 	cmd.Dir = work
 	env := netproxy.EnvWith(claudeProxy(ctx), cleanClaudeEnv(os.Environ()))
+	if req.advisor != "" {
+		// The client explicitly offered the native server tool. Feature-fetch
+		// traffic remains off; Claude Code still validates model access.
+		env = append(env, "CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1")
+	}
 	if req.clientCache != nil {
 		env = append(env, "DISABLE_PROMPT_CACHING=1")
 	}
@@ -741,6 +751,7 @@ func (b *subscriptionBridge) startRun(ctx context.Context, req *Request, model, 
 	run.safeguardBeta = req.SafeguardBeta
 	run.clientMarks = req.clientCache != nil
 	run.lean = req.leanPrompt
+	run.advisor = req.advisor
 	run.cachePrefix = prefix
 	if user, _ := ownerAccount(owner); user != "" {
 		run.loginVersion = provider.ClaudeLoginVersion(user)
@@ -832,6 +843,9 @@ func claudeExtraBody(raw json.RawMessage, tail string) string {
 func (r *subscriptionRun) setSafeguards(req *Request) error {
 	r.settingsMu.Lock()
 	defer r.settingsMu.Unlock()
+	if r.advisor != req.advisor {
+		return errors.New("advisor changed; restart Claude Code")
+	}
 	tail := req.cacheTail()
 	if r.clientMarks != (req.clientCache != nil) || !r.cachePrefix.accepts(tail) {
 		return errors.New("client cache marks changed; restart Claude Code")
@@ -1085,6 +1099,7 @@ func newLooseTurn(owner string, req *Request, msgs []Message, sealed bool) *loos
 	}
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%s\x00%t\x00%t\x00%s\x00%s\x00%t\x00%s\x00%d", owner, req.Model, req.Effort != "", req.ThinkOff, req.ToolChoice, withoutBillingHeader(req.System), req.WebSearch, req.Format.schema(), start)
+	fmt.Fprintf(h, "\x00advisor:%s", req.advisor)
 	cacheIdentity(h, req)
 	hashMessages(h, msgs[:start], nil)
 	l := &looseTurn{key: hex.EncodeToString(h.Sum(nil)), runs: heardRuns(msgs[start:], sealed)}
@@ -1811,6 +1826,7 @@ func turnKey(owner string, req *Request, msgs []Message) string {
 	h := sha256.New()
 	tools, _ := json.Marshal(req.Tools)
 	fmt.Fprintf(h, "%s\x00%s\x00%t\x00%t\x00%s\x00%s\x00%s\x00%t\x00%s", owner, req.Model, req.Effort != "", req.ThinkOff, req.ToolChoice, withoutBillingHeader(req.System), tools, req.WebSearch, req.Format.schema())
+	fmt.Fprintf(h, "\x00advisor:%s", req.advisor)
 	cacheIdentity(h, req)
 	hashMessages(h, msgs, nil)
 	return hex.EncodeToString(h.Sum(nil))
@@ -2101,7 +2117,7 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 	var quiet *time.Timer
 	// what each message's end does, once its stop is known
 	end := func(why string) {
-		if goesOn := why != "" && r.schema && !theirs || why == "tool_use" && len(own) > 0 && !theirs; goesOn {
+		if goesOn := why == "pause_turn" || why != "" && r.schema && !theirs || why == "tool_use" && len(own) > 0 && !theirs; goesOn {
 			inside = true // the answer is the next message's, or the result's
 		} else if why != "" {
 			r.emit(Event{Kind: KStop, Stop: stopFromAnthropic(why)})
@@ -2355,13 +2371,21 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 				index := blocks
 				blocks++
 				switch c.Type {
-				case "redacted_thinking":
+				case "redacted_thinking", "server_tool_use", "advisor_tool_result":
 					// sealed whole, as Anthropic wrote it (#1445)
 					if raws.Content == nil {
 						_ = json.Unmarshal(envelope.Message, &raws)
 					}
 					if i < len(raws.Content) {
-						r.emit(Event{Kind: KSealed, Name: sealAnthropic, Text: string(raws.Content[i])})
+						if c.Type == "redacted_thinking" {
+							r.emit(Event{Kind: KSealed, Name: sealAnthropic, Text: string(raws.Content[i])})
+						} else {
+							own[index] = true
+							if c.Type == "advisor_tool_result" || c.Name == "advisor" {
+								shown = true
+								r.emit(Event{Kind: KAdvisor, Text: string(raws.Content[i])})
+							}
+						}
 					}
 				case "thinking":
 					r.emit(Event{Kind: KThinkStart})
@@ -2431,14 +2455,22 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 			case "thinking":
 				// a block of its own, signed with no text or not (#1445)
 				r.emit(Event{Kind: KThinkStart})
-			case "redacted_thinking":
+			case "redacted_thinking", "server_tool_use", "advisor_tool_result":
 				var raw struct {
 					Event struct {
 						Block json.RawMessage `json:"content_block"`
 					} `json:"event"`
 				}
 				if json.Unmarshal(b, &raw) == nil && len(raw.Event.Block) > 0 {
-					r.emit(Event{Kind: KSealed, Name: sealAnthropic, Text: string(raw.Event.Block)})
+					if e.ContentBlock.Type == "redacted_thinking" {
+						r.emit(Event{Kind: KSealed, Name: sealAnthropic, Text: string(raw.Event.Block)})
+					} else {
+						own[e.Index] = true
+						if e.ContentBlock.Type == "advisor_tool_result" || e.ContentBlock.Name == "advisor" {
+							shown = true
+							r.emit(Event{Kind: KAdvisor, Text: string(raw.Event.Block)})
+						}
+					}
 				}
 			}
 		case "content_block_delta":
@@ -2496,11 +2528,12 @@ func (r *subscriptionRun) readOutput(rd io.Reader) {
 var unstreamedQuiet = 300 * time.Millisecond
 
 type cliUsage struct {
-	Input         int             `json:"input_tokens"`
-	Output        int             `json:"output_tokens"`
-	CacheRead     int             `json:"cache_read_input_tokens"`
-	CacheWrite    int             `json:"cache_creation_input_tokens"`
-	CacheCreation *aCacheCreation `json:"cache_creation"`
+	Iterations    *[]json.RawMessage `json:"iterations"`
+	Input         int                `json:"input_tokens"`
+	Output        int                `json:"output_tokens"`
+	CacheRead     int                `json:"cache_read_input_tokens"`
+	CacheWrite    int                `json:"cache_creation_input_tokens"`
+	CacheCreation *aCacheCreation    `json:"cache_creation"`
 	OutputDetails struct {
 		Thinking int `json:"thinking_tokens"`
 	} `json:"output_tokens_details"`
@@ -2551,6 +2584,19 @@ func (u Usage) carryUpdate(this, before Usage) Usage {
 }
 
 func (u Usage) plus(v Usage, only bool) Usage {
+	if v.Iterations != nil && (!only || u.Iterations != nil) {
+		var joined []json.RawMessage
+		if only {
+			joined = append(joined, *v.Iterations...)
+		}
+		if u.Iterations != nil {
+			joined = append(joined, *u.Iterations...)
+		}
+		if !only {
+			joined = append(joined, *v.Iterations...)
+		}
+		u.Iterations = &joined
+	}
 	if only && u.CacheWrite > 0 && !u.cacheCreationHasCounts && u.CacheWrite1h == 0 {
 		u.cacheCreationReported = false
 	}
@@ -2573,7 +2619,7 @@ func (u Usage) plus(v Usage, only bool) Usage {
 }
 
 func (u cliUsage) gateway() Usage {
-	out := Usage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.OutputDetails.Thinking}
+	out := Usage{Input: u.Input, Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.OutputDetails.Thinking, Iterations: u.Iterations}
 	if c := u.CacheCreation; c != nil {
 		out.cacheCreationReported = true
 		out.cacheCreationHasCounts = c.Ephemeral5m+c.Ephemeral1h > 0
@@ -3920,6 +3966,9 @@ func (b *subscriptionBridge) whyCallsLost(req *Request) string {
 }
 
 func (s *Server) serveClaudeSubscription(w http.ResponseWriter, r *http.Request, from provider.Protocol, p provider.Provider, model string, body []byte, usage *Usage) (int, string) {
+	if from == provider.Anthropic {
+		body = advisorTools(body, p, model, wiresOf(r.Context()))
+	}
 	owner := p.ID
 	if p.Account != nil {
 		owner += "\x00" + p.Account.User
@@ -4003,8 +4052,8 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, from 
 	start func(ctx context.Context, req *Request) (*subscriptionRun, <-chan Event, error)) (int, string) {
 	var req *Request
 	var err error
-	if name == "Claude Code" && wantsClientCache(r, from) {
-		req, err = parseAnthropicRequest(body, true)
+	if name == "Claude Code" && from == provider.Anthropic {
+		req, err = parseAnthropicForBridge(body, wantsClientCache(r, from), true)
 	} else {
 		req, err = parse(from, body)
 	}

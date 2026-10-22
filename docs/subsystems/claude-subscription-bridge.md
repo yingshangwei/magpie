@@ -80,6 +80,36 @@ official CLI, without inspecting the headers it generates inside TLS.
 [Privacy boundaries and the optional outer launch](../claude-privacy.md)
 describe what is and is not covered.
 
+## Advisor calls
+
+A Messages client that offers `advisor_20260301` keeps the native server
+tool in a Claude subscription run. `advisorTools` checks that its model
+belongs to the selected provider, or is an unqualified Claude model, and
+maps a provider-prefixed name to the upstream name. `parseAnthropicForBridge`
+keeps its instructions and `startRun` passes `--advisor` to Claude Code.
+Only that run receives `CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1`, so
+the bridge can honor the explicit request while feature-fetch traffic stays
+disabled. Claude Code still performs its own model and access checks.
+
+The advisor model belongs to both exact and rewritten-conversation keys.
+Changing it or removing the tool starts a new run; a tool-result handoff
+cannot continue with the old setting. Saved sessions follow the same keys.
+As with other restarts, a new run reconstructs the visible conversation;
+opaque advisor history is retained by the native session when that session
+is resumed, rather than rendered into the reconstructed user message.
+
+`readOutput` carries `server_tool_use` for advisor and `advisor_tool_result`
+as complete blocks to streaming and whole Messages replies, including
+encrypted results and vendor error results. They never become client MCP
+calls. A native `pause_turn` stays inside the same reply while Claude Code
+continues it. `usage.iterations` retains the model-specific advisor counts;
+top-level token totals remain the executor's counts. The gateway's usage
+ledger still estimates cost from those executor totals only.
+
+`TestClaudeSubscriptionForwardsAdvisor`, `TestClaudeSubscriptionAdvisorChanges`,
+`TestClaudeSubscriptionAdvisorReply`, `TestClaudeSubscriptionAdvisorWholeOutput`
+and `TestClaudeSubscriptionLeavesForeignAdvisorOut` cover this path.
+
 ## Why turns go on in one run
 
 A run started anew is told the whole conversation in one user message

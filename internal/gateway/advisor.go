@@ -92,6 +92,10 @@ func advisorModel(p provider.Provider, model string, wires map[string]string) (s
 	if model == "" {
 		return "", false
 	}
+	if own, ok := strings.CutPrefix(model, p.ID+"/"); ok {
+		name := provider.UpstreamNameIn(wires, p.ID, own)
+		return name, anthropicModel.MatchString(name)
+	}
 	if q, m, ok := provider.Resolve(model); ok && !strings.HasPrefix(model, provider.GroupPrefix) {
 		if q.ID != p.ID {
 			return "", false

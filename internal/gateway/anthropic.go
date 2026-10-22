@@ -83,6 +83,7 @@ type aRequest struct {
 	Tools []struct {
 		Type         string          `json:"type,omitempty"`
 		Name         string          `json:"name"`
+		Model        string          `json:"model,omitempty"`
 		Description  string          `json:"description,omitempty"`
 		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 		CacheControl json.RawMessage `json:"cache_control,omitempty"`
@@ -118,6 +119,12 @@ func parseAnthropic(body []byte) (*Request, error) {
 }
 
 func parseAnthropicRequest(body []byte, clientMarks bool) (*Request, error) {
+	return parseAnthropicForBridge(body, clientMarks, false)
+}
+
+// parseAnthropicForBridge keeps an advisor only for the native Claude bridge,
+// after advisorTools has checked its provider and mapped its model name.
+func parseAnthropicForBridge(body []byte, clientMarks, keepAdvisor bool) (*Request, error) {
 	var a aRequest
 	if err := decodeJSON(body, &a); err != nil {
 		return nil, fmt.Errorf("invalid request: %v", err)
@@ -202,6 +209,10 @@ func parseAnthropicRequest(body []byte, clientMarks bool) (*Request, error) {
 				r.WebSearch = true
 			}
 			if strings.HasPrefix(t.Type, "advisor_") {
+				if keepAdvisor && t.Name == "advisor" && t.Model != "" {
+					r.advisor = t.Model
+					continue
+				}
 				// Claude Code's advisor: its instructions, which would
 				// have the model call a tool it hasn't got (advisor.go)
 				for i := range r.Messages {
@@ -1260,10 +1271,11 @@ func decodeAnthropic(data string, emit func(Event)) error {
 }
 
 type aUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	Iterations               *[]json.RawMessage `json:"iterations,omitempty"`
+	InputTokens              int                `json:"input_tokens"`
+	OutputTokens             int                `json:"output_tokens"`
+	CacheReadInputTokens     int                `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int                `json:"cache_creation_input_tokens"`
 	// CacheCreation splits the cache writes by how long they are kept,
 	// which Anthropic bills apart: 1.25× input for 5 minutes, 2× for an
 	// hour
@@ -1276,7 +1288,7 @@ type aCacheCreation struct {
 }
 
 func (u aUsage) usage() Usage {
-	out := Usage{Input: u.InputTokens, Output: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheWrite: u.CacheCreationInputTokens}
+	out := Usage{Input: u.InputTokens, Output: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheWrite: u.CacheCreationInputTokens, Iterations: u.Iterations}
 	if c := u.CacheCreation; c != nil {
 		out.cacheCreationReported = true
 		out.cacheCreationHasCounts = c.Ephemeral5m+c.Ephemeral1h > 0
@@ -1289,7 +1301,7 @@ func (u aUsage) usage() Usage {
 // anthropic is the usage as Anthropic says it, the cache writes split by
 // how long they are kept when upstream reported TTLs or some were for an hour.
 func (u Usage) anthropic() aUsage {
-	out := aUsage{InputTokens: u.Input, OutputTokens: u.Output, CacheReadInputTokens: u.CacheRead, CacheCreationInputTokens: u.CacheWrite}
+	out := aUsage{InputTokens: u.Input, OutputTokens: u.Output, CacheReadInputTokens: u.CacheRead, CacheCreationInputTokens: u.CacheWrite, Iterations: u.Iterations}
 	if h := min(u.CacheWrite1h, u.CacheWrite); u.cacheCreationReported || h > 0 {
 		out.CacheCreation = &aCacheCreation{Ephemeral5m: u.CacheWrite - h, Ephemeral1h: h}
 	}
@@ -1486,9 +1498,9 @@ func (e *anthropicEncoder) event(ev Event) {
 			e.thinking()
 			e.delta(map[string]any{"type": "signature_delta", "signature": ev.Text})
 		}
-	case KSealed:
-		if ev.Name == sealAnthropic {
-			// a redacted_thinking block, whole as Anthropic wrote it
+	case KSealed, KAdvisor:
+		if ev.Kind == KAdvisor || ev.Name == sealAnthropic {
+			// A sealed reasoning or advisor block, whole as Anthropic wrote it.
 			e.close()
 			e.fresh = false
 			e.w.event("content_block_start", map[string]any{"type": "content_block_start", "index": e.index, "content_block": json.RawMessage(ev.Text)})
@@ -1568,6 +1580,8 @@ func renderAnthropic(res Result, model string) []byte {
 	content := []any{}
 	for _, p := range res.Parts {
 		switch p.Kind {
+		case Advisor:
+			content = append(content, p.AdvisorRaw)
 		case Text:
 			if p.Text == "" && p.Signature != "" {
 				continue // only Gemini's signature, which is Gemini's
