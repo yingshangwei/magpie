@@ -55,7 +55,10 @@ test("a plugin's words are its own", () => {
     const own = path.join(assets, path.dirname(file)) + path.sep;
     const rest = texts.filter(([p]) => !p.startsWith(own));
     for (const k of Object.keys(dict.zh)) {
-      const at = rest.find(([, s]) => s.includes(k) || s.includes(JSON.stringify(k).slice(1, -1)));
+      // An identifier containing a word isn't that UI label: OFFICIAL
+      // inside CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL.
+      const word = /^\w+$/.test(k) ? new RegExp(`(^|[^\\w])${k}([^\\w]|$)`) : null;
+      const at = rest.find(([, s]) => word ? word.test(s) : s.includes(k) || s.includes(JSON.stringify(k).slice(1, -1)));
       if (at) shared.push(`${file} ${JSON.stringify(k)}: ${path.relative(repo, at[0])} says it too`);
     }
   }
