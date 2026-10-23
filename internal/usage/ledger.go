@@ -975,7 +975,7 @@ type Part struct {
 
 // add counts a row in the part.
 func (p *Part) add(r Row) {
-	if !r.HandedOn {
+	if r.CountsRequest() {
 		p.Calls++
 	}
 	p.Tokens += r.Input + r.Output + r.CacheRead + r.CacheWrite

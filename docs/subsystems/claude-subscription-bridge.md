@@ -103,8 +103,24 @@ as complete blocks to streaming and whole Messages replies, including
 encrypted results and vendor error results. They never become client MCP
 calls. A native `pause_turn` stays inside the same reply while Claude Code
 continues it. `usage.iterations` retains the model-specific advisor counts;
-top-level token totals remain the executor's counts. The gateway's usage
-ledger still estimates cost from those executor totals only.
+top-level token totals remain the executor's counts.
+
+[`advisorRecords`](../../internal/gateway/advisor_usage.go) writes each reported
+`advisor_message` with a nonempty model and valid token counts as a separate
+usage row, marked `operation: advisor` and `kind: advisor`. It shares the
+executor's route, session and billing account, while keeping its own input,
+output, cache reads and 5-minute/1-hour cache writes. Message iterations are
+already in the executor totals and are not added again. Summary, model
+breakdown, request ledger, CSV and gateway-key budgets price these rows at
+the reported advisor model's effective price. A missing price remains
+unpriced; an old record without iterations cannot be backfilled.
+
+Advisor rows do not add gateway requests, failures, retries, response timings
+or a selected session model. The executor's response id, request bodies and
+status are not copied onto the advisor. Routing cost includes advisor usage,
+but prompt calibration and cache affinity keep the executor's own counts.
+`TestAdvisorUsageLedger`, `TestAdvisorRouteUsageKeepsExecutorPrompt` and
+`TestAdvisorDoesNotEndOrRetryARequest` cover these accounting boundaries.
 
 `TestClaudeSubscriptionForwardsAdvisor`, `TestClaudeSubscriptionAdvisorChanges`,
 `TestClaudeSubscriptionAdvisorReply`, `TestClaudeSubscriptionAdvisorWholeOutput`

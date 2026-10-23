@@ -114,8 +114,9 @@ type rowChunk struct {
 // rowMsg is the Text of a row's Claude message id, after rowText's, and
 // rowError its error's
 const (
-	rowMsg   = 34
-	rowError = 9
+	rowMsg       = 34
+	rowError     = 9
+	rowOperation = 23
 	// rowClient is the Text of the client's own name, when the user counts
 	// it as another agent (Row.Client, #1958)
 	rowClient = 33

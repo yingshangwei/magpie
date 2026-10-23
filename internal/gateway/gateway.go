@@ -2904,7 +2904,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 					refusal.wholeIn, refusal.wholeOut = call.wholeIn, hw.errBody()
 				}
 				withBodies(&rec, refusal)
-				appendUsage(r, rec)
+				appendUsage(r, rec, call.Usage)
 			}
 			continue
 		}
@@ -2948,7 +2948,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 					refusal.wholeIn, refusal.wholeOut = call.wholeIn, hw.errBody()
 				}
 				withBodies(&rec, refusal)
-				appendUsage(r, rec)
+				appendUsage(r, rec, call.Usage)
 			}
 			continue
 		}
@@ -3418,7 +3418,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		}
 		failedWith(&rec, call.Status, call.Error, call.Usage.ErrType)
 		withBodies(&rec, &call)
-		appendUsage(r, rec)
+		appendUsage(r, rec, call.Usage)
 	}
 }
 

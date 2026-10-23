@@ -134,19 +134,21 @@ type Route struct {
 // RouteUsage is one billable attempt's pricing inputs, kept in routing history.
 // Its JSON keys also read the earlier history that stored full usage records.
 type RouteUsage struct {
-	Provider   string `json:"provider"`
-	Model      string `json:"model"`
-	Input      int    `json:"in"`
-	Output     int    `json:"out"`
-	CacheRead  int    `json:"cache_read,omitempty"`
-	CacheWrite int    `json:"cache_write,omitempty"`
-	Reasoning  int    `json:"reasoning,omitempty"`
+	Operation    string `json:"operation,omitempty"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	Input        int    `json:"in"`
+	Output       int    `json:"out"`
+	CacheRead    int    `json:"cache_read,omitempty"`
+	CacheWrite   int    `json:"cache_write,omitempty"`
+	CacheWrite1h int    `json:"cache_write_1h,omitempty"`
+	Reasoning    int    `json:"reasoning,omitempty"`
 }
 
 // PricingRecord lets the routing view reuse the ledger's effective prices.
 func (u RouteUsage) PricingRecord() usage.Record {
-	return usage.Record{Provider: u.Provider, Model: u.Model, Input: u.Input,
-		Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.Reasoning}
+	return usage.Record{Operation: u.Operation, Provider: u.Provider, Model: u.Model, Input: u.Input,
+		Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, CacheWrite1h: u.CacheWrite1h, Reasoning: u.Reasoning}
 }
 
 // GroupRef is the routing group a request asked for.
@@ -680,11 +682,18 @@ func routeUsage(id, model string, u Usage) []RouteUsage {
 	var out []RouteUsage
 	if d := u.Deferred; d != nil && d.Input+d.Output+d.CacheRead+d.CacheWrite > 0 {
 		out = append(out, RouteUsage{Provider: id, Model: model, Input: d.Input, Output: d.Output,
-			CacheRead: d.CacheRead, CacheWrite: d.CacheWrite, Reasoning: d.Reasoning})
+			CacheRead: d.CacheRead, CacheWrite: d.CacheWrite, CacheWrite1h: d.CacheWrite1h, Reasoning: d.Reasoning})
 	}
-	if u.Input+u.Output == 0 {
+	advisors := advisorRecords(usage.Record{Provider: id}, u)
+	for _, a := range advisors {
+		out = append(out, RouteUsage{Operation: a.Operation, Provider: id, Model: a.Model,
+			Input: a.Input, Output: a.Output, CacheRead: a.CacheRead, CacheWrite: a.CacheWrite, CacheWrite1h: a.CacheWrite1h})
+	}
+	// The executor stays last, even with no tokens: promptCounted must never
+	// treat an advisor's independent prompt as the client's context.
+	if u.Input+u.Output == 0 && len(advisors) == 0 {
 		return out
 	}
 	return append(out, RouteUsage{Provider: id, Model: model, Input: u.Input, Output: u.Output,
-		CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.Reasoning})
+		CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, CacheWrite1h: u.CacheWrite1h, Reasoning: u.Reasoning})
 }

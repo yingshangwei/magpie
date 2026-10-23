@@ -455,7 +455,7 @@ func accountOf(p provider.Provider) string {
 	return p.Account.User
 }
 
-func appendUsage(r *http.Request, rec usage.Record) {
+func appendUsage(r *http.Request, rec usage.Record, counts ...Usage) {
 	if rec.Session == "" {
 		rec.Session = sessionOf(r.Header)
 	}
@@ -467,6 +467,11 @@ func appendUsage(r *http.Request, rec usage.Record) {
 	rec.Local = local(r)
 	if r.Context().Value(observedKey{}) != nil {
 		rec.Watched = true
+	}
+	for _, u := range counts {
+		for _, advisor := range advisorRecords(rec, u) {
+			budget.Append(advisor)
+		}
 	}
 	budget.Append(rec)
 }
