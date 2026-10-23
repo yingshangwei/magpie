@@ -117,6 +117,20 @@ same way.
 [`reasoning-speed.test.cjs`](../../internal/gui/tests/reasoning-speed.test.cjs)
 cover the calculation, cache round trip, translated streams and both pages.
 
+### Routing without a local live trace
+
+When the gateway is stopped or served by another process, the Routing page
+shows its existing availability notice and hides the live trace, request
+history and account readings. Routing groups and the providers' multi-account
+settings remain available: they read and write the local configuration through
+`/api/groups` and the provider APIs, independently of `served`.
+An unavailable trace stays hidden across redraws; when this process serves the
+gateway again, its trace appears normally. `offline` and `renderHist` in
+[`plugins/routing/client.js`](../../internal/gui/assets/plugins/routing/client.js)
+own this visibility. `routing-without-local-gateway.test.cjs` covers other
+windows, background services, stopped gateways and ownership changes in both
+browser engines, with all five languages and narrow windows.
+
 ### Routing purpose filter
 
 The request heading's purpose menu in [`plugins/routing/client.js`](../../internal/gui/assets/plugins/routing/client.js)

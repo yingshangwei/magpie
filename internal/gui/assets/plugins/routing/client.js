@@ -2506,7 +2506,7 @@ function routingPage(part) {
     const rs = listed();
     renderStats(rs);
     const all = allListed();
-    hist.hidden = !all.length && !day && !days.length && !purpose.length;
+    hist.hidden = !off.hidden || (!all.length && !day && !days.length && !purpose.length);
     const opts = purposeOptions([...all.map((r) => purposeOf(r.kind)), ...purpose]);
     const selected = opts.filter((o) => purpose.includes(o.v));
     purposeTools.hidden = opts.length < 2 && !purpose.length;
@@ -3344,8 +3344,9 @@ function routingPage(part) {
   function offline(msg) {
     off.textContent = msg;
     off.hidden = !msg;
-    for (const e of [top, stage, foot, log]) e.hidden = !!msg;
-    more.hidden = !!msg;
+    // The live trace belongs to its serving process; groups and account
+    // settings below it are available even when another process serves.
+    for (const e of [top, stage, foot, log, hist]) e.hidden = !!msg;
   }
 
   function empty() {
