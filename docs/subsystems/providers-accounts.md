@@ -55,6 +55,28 @@ keys and accounts per request is in [Gateway routing and fallback](gateway-routi
 | Protocol detection | Works out which of Chat, Responses, Anthropic Messages and Gemini generateContent a base URL speaks when a provider is added. Each is asked at the URL as it takes it (`DetectBase`); Gemini's at the `…/v1beta` beside a typed `…/v1` or bare host, a Gemini model from the list picked for it, with the key in `x-goog-api-key` (#1346). Detection, endpoint tests and model tests share `probe`, which adds `anthropic-version` only for Anthropic Messages; OpenAI probes omit that default so a relay that refuses it can answer. User-supplied headers still apply through `Sign`. The editor asks with the form as it stands, before any Save (#1545): the URL, key and models typed (`picked`, else the saved picks, else the vendor list); a key not typed again is the saved provider's, or for an unsaved copy the copied one's (`copyOf`). The probe writes nothing and adds no provider, and the route stays behind `magpie web`'s key. | [`detect.go`](../../internal/provider/detect.go), [`test.go`](../../internal/provider/test.go) |
 | A pasted curl command | A curl command from a vendor's docs pasted into a custom provider's Base URL or API key fills the editor in (@mark_li21 on X). `curlOf` reads it as a shell would (lines joined by `\`, cmd's `^` or PowerShell's backtick; `curl.exe`; quotes and escapes), and takes: the API its URL's endpoint names (`…/chat/completions` Chat, `…/messages` Anthropic Messages, `…/responses` Responses) with the base URL before it, spelled as that API wants it (`respellURL`: Anthropic at its root, `/v1` after a bare host); the key from `Authorization: Bearer`, `x-api-key` or `api-key`, unless it only stands for one (`$OPENAI_API_KEY`, `${X}`, `%X%`, `<token>`, `YOUR_API_KEY`), when the key's box is left empty and focused; and the `model` of its JSON body, added to a new provider's models (a saved one's picks are left alone, since adding to none would narrow what it serves). A preset's editor takes only the key. A note (`editorError`, kind `note`) says what was taken, a placeholder like `{WorkspaceId}` left in the URL, and a URL with no known endpoint. Text that isn't a curl command pastes as before, several keys included. Tested on the docs' own examples (`fixtures/curl`). | [`app.js`](../../internal/gui/assets/app.js) (`curlOf`, `fromCurl`), [`provider-curl-paste.test.cjs`](../../internal/gui/tests/provider-curl-paste.test.cjs) |
 
+### AsterGate shared account windows
+
+A keyed provider at `https://astergate.cc` reads its shared Claude account's
+5-hour and weekly windows through the site's `astergate-self-usage` v1
+protocol. `asterGateWindows` opens a restricted `/usage-session` with the
+key encrypted as RSA-OAEP-256 / A256GCM JWE, keeps its cookie in memory, and
+logs out after each read. Requests follow the provider's proxy and the
+allowance-read setting; redirects are refused. Only an explicit card refresh
+asks the site to update its cached reading, respecting its per-account
+refresh status and 429 cooldown.
+
+`readPlanKey` supplies the same windows to `PlanQuotas` and `KeyAllowance`.
+The card retains the vendor's `checked_at`, and the Fable weekly window
+counts only Fable, including after the cached card is restored from disk.
+The verified account scope contains one shared Claude account; missing
+measurements, unrecognized windows and multiple upstream accounts report
+unavailable rather than an invented zero or aggregate. Reported request
+cost and shared concurrency are not a key balance or dedicated capacity.
+Local Claude accounts still route alongside this key through ordinary
+groups. See [`astergate_usage.go`](../../internal/provider/astergate_usage.go)
+and [`astergate_usage_test.go`](../../internal/provider/astergate_usage_test.go).
+
 ## Remote magpie
 
 The `remote-magpie` preset is of its own kind, `KindRemote` (`remote`), not

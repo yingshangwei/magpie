@@ -63,6 +63,10 @@ func planQuotaSourceOf(p Provider) (planQuotaSource, bool) {
 			// Ollama Cloud's included allowance (#1888); a key with none
 			// gets no card
 			return planQuotaSource{ollamaBalanceURL, true, readOllamaPlan, false}, true
+		case "astergate.cc":
+			if base == asterGateOrigin || strings.HasPrefix(base, asterGateOrigin+"/") {
+				return planQuotaSource{url: asterGateOrigin + "/usage-session/report", sure: true}, true
+			}
 		}
 	}
 	return planQuotaSource{}, false
@@ -617,6 +621,17 @@ func planKeyWindows(ctx context.Context, p Provider, src planQuotaSource, key st
 	return plan, ws, false, err
 }
 
+// readPlanKey preserves a vendor's measurement time when its report is
+// itself cached, rather than dating that reading when we fetched it.
+func readPlanKey(ctx context.Context, p Provider, src planQuotaSource, key string) (r keyReading, team bool, err error) {
+	if hostOf(src.url) == "astergate.cc" {
+		r, err = asterGateWindows(ctx, key)
+		return r, false, err
+	}
+	r.plan, r.ws, team, err = planKeyWindows(ctx, p, src, key)
+	return r, team, err
+}
+
 var planQuotaCache struct {
 	sync.Mutex
 	at   time.Time
@@ -685,7 +700,8 @@ func PlanQuotas(ctx context.Context) []SubscriptionQuota {
 			defer wg.Done()
 			defer slots.take(ctx, j.p.ID)()
 			q := SubscriptionQuota{Provider: j.p.ID, Name: j.p.Name, Icon: j.p.Icon, User: j.user, Windows: []QuotaWindow{}}
-			plan, ws, team, err := planKeyWindows(j.p.Via(ctx), j.p, j.src, j.key)
+			r, team, err := readPlanKey(j.p.Via(ctx), j.p, j.src, j.key)
+			ws := r.ws
 			// a vendor failing a while (Command Code answers billing/credits
 			// 503 at times) shows what was last read, as a subscription's
 			// card does, rather than no card or "Usage unavailable"
@@ -703,7 +719,10 @@ func PlanQuotas(ctx context.Context) []SubscriptionQuota {
 			case err != nil:
 				q.Error = err.Error()
 			default:
-				q.Plan, q.Windows = plan, ws
+				q.Plan, q.Windows = r.plan, ws
+				if !r.at.IsZero() {
+					q.ReadAt = &r.at
+				}
 				// what routing goes by, read just now (KeyAllowance)
 				k := j.p
 				k.Key = j.key

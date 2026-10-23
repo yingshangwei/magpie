@@ -144,7 +144,10 @@ func readKeyAllowance(p Provider, id string, gen int) {
 	e.loading, e.at = false, now
 	renewed := err == nil && e.keep(allowanceOf(ws, now), SpentShareOf(p.Routing), now)
 	if err == nil {
-		r.at, r.seq = now, seq
+		if r.at.IsZero() {
+			r.at = now
+		}
+		r.seq = seq
 		e.read = r
 	}
 	if e.stale {
@@ -180,7 +183,7 @@ func keyWindows(ctx context.Context, p Provider) (keyReading, error) {
 	var r keyReading
 	var err error
 	if src, ok := planQuotaSourceOf(q); ok && !sub2APIKeyLimits(q) {
-		r.plan, r.ws, _, err = planKeyWindows(q.Via(ctx), q, src, q.Key)
+		r, _, err = readPlanKey(q.Via(ctx), q, src, q.Key)
 		return r, err
 	}
 	var parts []BalancePart
