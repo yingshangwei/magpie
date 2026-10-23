@@ -1,5 +1,14 @@
 # Notes for coding agents
 
+## This fork's development and installation branch
+
+Use `dev` as the shared development branch and the sole source for local
+installation. Continue work there by default. If a change needs an isolated
+branch, integrate and verify it on `dev` before installing it. Commit and
+publish the source before building; build from a clean checkout and identify
+the package as `dev.<commit>`. Record and verify the installed binary against
+that commit as described in [local development](docs/local-development.md).
+
 ## Subsystem design and review
 
 Before changing a documented subsystem, read its
