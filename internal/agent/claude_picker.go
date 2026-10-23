@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/filelock"
 	"github.com/yetone/magpie/internal/provider"
@@ -46,6 +48,27 @@ func claudePickerSource(e provider.Entry) string {
 	return e.Provider.ID
 }
 
+var claudePickerStatus = regexp.MustCompile(`\s+⚠️?\s*\d+(?:\.\d+)?%$`)
+
+func claudePickerName(e provider.Entry) string {
+	name := strings.TrimSpace(cmp.Or(e.PlainName(), e.Model))
+	// Keep names the user chose. Found groups otherwise inherit a member's
+	// live status; the maker's name is stable when that member changes.
+	if e.Default != "" || e.Named {
+		return name
+	}
+	if e.Group != "" {
+		name = cmp.Or(catalog.NameOf(e.Model), name)
+	}
+	return claudePickerStatus.ReplaceAllString(name, "")
+}
+
+func claudePickerNameKey(name string) string {
+	// Providers spell the same display name with spaces, dashes or underscores.
+	name = strings.NewReplacer("-", " ", "_", " ").Replace(name)
+	return strings.ToLower(strings.Join(strings.Fields(name), " "))
+}
+
 func claudePickerLabels() (map[string]string, bool, error) {
 	if !settings.Load().ClaudeMinimalModelPicker {
 		return listLabels("claude"), false, nil
@@ -55,9 +78,9 @@ func claudePickerLabels() (map[string]string, bool, error) {
 	byName := map[string]map[string]bool{}
 	labels := make(map[string]string, len(shown))
 	for _, e := range shown {
-		name := strings.TrimSpace(cmp.Or(e.PlainName(), e.Model))
+		name := claudePickerName(e)
 		source := claudePickerSource(e)
-		key := strings.ToLower(name)
+		key := claudePickerNameKey(name)
 		if byName[key] == nil {
 			byName[key] = map[string]bool{}
 		}
@@ -71,7 +94,7 @@ func claudePickerLabels() (map[string]string, bool, error) {
 	}
 	for _, e := range shown {
 		name := labels[e.ID]
-		if len(byName[strings.ToLower(name)]) > 1 {
+		if len(byName[claudePickerNameKey(name)]) > 1 {
 			labels[e.ID] = name + " v" + strconv.Itoa(numbers[claudePickerSource(e)])
 		}
 	}
