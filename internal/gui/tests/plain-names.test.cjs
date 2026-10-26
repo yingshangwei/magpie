@@ -9,7 +9,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const { watchSettingsReads, settingsDrawn } = require("./reader.cjs");
+const { watchSettingsReads, settingsDrawn, wheelTo } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 
@@ -96,10 +96,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // scrolled by a wheel till the row is mid-view (a real wheel, so the
       // reader's-scroll guard lets it stick), Off moves nothing and is
       // posted on its own
-      const box = await page.locator("#view-settings").boundingBox();
-      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-      const top = () => page.locator("#plainNamesSegs").evaluate((e) => e.getBoundingClientRect().top);
-      for (let i = 0; i < 40 && (await top()) > 240; i++) { await page.mouse.wheel(0, 100); await page.waitForTimeout(30); }
+      await wheelTo(page, page.locator("#plainNamesSegs"), 240);
       const before = await view(page);
       assert(before > 0, "the settings list must scroll to the row");
       await segs.nth(0).click();
