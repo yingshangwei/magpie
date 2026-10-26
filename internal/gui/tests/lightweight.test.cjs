@@ -9,7 +9,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const { watchSettingsReads, settingsDrawn } = require("./reader.cjs");
+const { reach, watchSettingsReads, settingsDrawn } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const words = {
@@ -47,7 +47,7 @@ function serve(lang, web, posted, st) {
 async function open(engine, lang, web, posted, st, t) {
   const browser = await (engine === "webkit" ? webkit.launch() : chromium.launch({ channel: "chromium" }));
   t.after(() => browser.close());
-  // tall enough that Lightweight mode is over the window's foot: rows were added above it
+  // Controls farther down Settings are reached with the reader's wheel.
   const page = await (await browser.newContext({ viewport: { width: 900, height: 1000 } })).newPage();
   page.setDefaultTimeout(5000);
   const errors = [];
@@ -73,13 +73,15 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const opt = (name) => row.locator("#lightweightSegs .opt", { hasText: name });
       assert.equal(await row.locator("#lightweightSegs .opt.on").innerText(), w.off, "off by default");
       const where = () => page.evaluate(() => [scrollX, scrollY, document.scrollingElement.scrollTop, ...[...document.querySelectorAll("*")].filter((e) => e.scrollTop).map((e) => e.scrollTop)]);
-      const before = await where();
       const click = async (loc) => {
         // the last save's answer draws Settings again, every option replaced:
         // one measured before that is gone (null) by the time it is clicked
         await page.waitForFunction(() => prefsBusy === 0);
-        const b = await loc.boundingBox();
-        await page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+        await reach(page, loc);
+        const before = await where();
+        await loc.click();
+        await page.waitForFunction(() => prefsBusy === 0);
+        assert.deepEqual(await where(), before, "a click moved the page");
       };
       await click(opt(w.on));
       for (let i = 0; i < 50 && !posted.length; i++) await page.waitForTimeout(50);
@@ -94,7 +96,6 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await click(opt(w.off));
       for (let i = 0; i < 50 && posted.at(-1)?.lightweight !== false; i++) await page.waitForTimeout(50);
       assert.equal(posted.at(-1).lightweight, false);
-      assert.deepEqual(await where(), before, "the clicks moved the page");
       // the row has no coloured stripe down its left
       const left = await row.evaluate((e) => getComputedStyle(e).borderLeftWidth);
       assert(parseFloat(left) <= 1, `left border ${left}`);
