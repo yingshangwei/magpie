@@ -164,6 +164,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           await reader.inView(p, back);
           const lineAt = () => line.evaluate((e) => e.getBoundingClientRect().top);
           const was = await lineAt();
+          const wasTop = await top(p);
           await back.click();
           await p.waitForFunction(() => !!document.querySelector('#usageAgents .row.stat[data-id="curl"]'));
           await p.waitForTimeout(150);
@@ -173,7 +174,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           assert.equal((await line.textContent()).trim(), w.n(2));
           // within the pixel the page's hold leaves it
           const now = await lineAt();
-          assert(Math.abs(now - was) < 1.5, `unhiding a row leaves the hidden line where it was: ${was} → ${now}`);
+          if (wasTop < 1) assert.equal(await top(p), 0, "a view at its top stays at its top when a row is restored above the line");
+          else assert(Math.abs(now - was) < 1.5, `unhiding a row leaves the hidden line where it was: ${was} → ${now}`);
 
           // nothing is wider than the page
           const wide = await p.evaluate(() => { const v = document.querySelector("#view-usage"); return [v.scrollWidth, v.clientWidth, document.documentElement.scrollWidth, window.innerWidth]; });

@@ -5,6 +5,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { reach } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const now = new Date();
@@ -146,7 +147,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
           // button) the page is scrolled, and Playwright's WebKit then
           // places them hundreds of pixels lower, under the footer
           const tap = async (loc) => {
-            const [x, y] = await loc.evaluate((e) => { e.scrollIntoView({ block: "center" }); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+            await reach(page, loc);
+            const [x, y] = await loc.evaluate((e) => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
             await page.mouse.click(x, y);
           };
           await tap(page.locator("#rtMetrics"));

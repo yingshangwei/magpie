@@ -17,7 +17,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const { watchSettingsReads, settingsDrawn } = require("./reader.cjs");
+const { watchSettingsReads, settingsDrawn, reach } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 
@@ -51,7 +51,7 @@ function serve(lang, st, ctl) {
 const THUMBS = `[...document.querySelectorAll("#setPage-general .segs")].filter((s) => s.offsetParent).map((s) => {
   const th = s.querySelector(":scope > .thumb"), on = s.querySelector(":scope > .on"), b = s.getBoundingClientRect();
   const r = th?.getBoundingClientRect(), o = on?.getBoundingClientRect();
-  return { id: s.parentElement.id || s.dataset.kind, x: r ? r.left - b.left : -1, w: r ? r.width : -1, ox: o ? o.left - b.left : -1, ow: o ? o.width : -1 };
+  return { id: s.closest("[id]").id, x: r ? r.left - b.left : -1, w: r ? r.width : -1, ox: o ? o.left - b.left : -1, ow: o ? o.width : -1 };
 })`;
 
 // records every thumb on General at each frame, and between them
@@ -71,6 +71,7 @@ async function stop(page) {
 // one control's thumb moved one way only, from its start to its end, and
 // every other control's thumb didn't move at all
 function oneWay(frames, id, label) {
+  for (const frame of frames) assert.equal(new Set(frame.map((c) => c.id)).size, frame.length, "each thumb has its own control identity");
   const xs = frames.map((f) => f.find((c) => c.id === id)).filter(Boolean);
   assert.ok(xs.length > 3, label + ": frames recorded");
   const up = xs[xs.length - 1].x >= xs[0].x;
@@ -94,20 +95,6 @@ async function underPicks(page, label) {
   for (const c of await page.evaluate((src) => new Function("return " + src)(), THUMBS)) {
     assert.ok(Math.abs(c.x - c.ox) < 1 && Math.abs(c.w - c.ow) < 1, `${label}: ${c.id}'s thumb at ${c.x.toFixed(1)}/${c.w.toFixed(1)}, its option at ${c.ox.toFixed(1)}/${c.ow.toFixed(1)}`);
   }
-}
-
-// brought out from under the header and the foot by the reader's wheel, as
-// code's scrolls are put back, till the pointer at its middle is on it
-async function reveal(page, loc) {
-  for (let i = 0; i < 40; i++) {
-    const b = await loc.boundingBox();
-    const h = page.viewportSize().height;
-    if (b && await loc.evaluate((o, [x, y]) => o.contains(document.elementFromPoint(x, y)), [b.x + b.width / 2, b.y + b.height / 2])) return;
-    await page.mouse.move(page.viewportSize().width / 2, h / 2);
-    await page.mouse.wheel(0, b && b.y < h / 2 ? -150 : 150);
-    await page.waitForTimeout(60);
-  }
-  throw new Error("could not bring the option into view");
 }
 
 for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"])) {
@@ -136,7 +123,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
 
         const opt = (i) => page.locator("#lightweightSegs .opt").nth(i);
         const scroll = () => page.evaluate(() => document.querySelector("#view-settings").scrollTop);
-        await reveal(page, opt(1));
+        await reach(page, opt(1));
         await page.waitForTimeout(300);
         const top = await scroll();
 

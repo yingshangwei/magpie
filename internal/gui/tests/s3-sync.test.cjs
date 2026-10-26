@@ -8,7 +8,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
-const { openPart } = require("./reader.cjs");
+const { openPart, reach, wheelTo } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 
@@ -92,9 +92,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const top = () => page.evaluate(() => document.querySelector("#view-settings").scrollTop);
       // at the page's end, then back up by the wheel till the choice is in sight
       await toEnd();
-      const segTop = () => page.evaluate(() => document.querySelector(".sync-form .segs").getBoundingClientRect().top - document.querySelector("#view-settings").getBoundingClientRect().top);
-      for (let i = 0; i < 40 && (await segTop()) < 10; i++) { await page.mouse.wheel(0, -40); await page.waitForTimeout(15); }
-      await page.waitForTimeout(300);
+      await wheelTo(page, form.locator(".segs .opt", { hasText: "S3" }), 300);
       const before = await top();
       assert.ok(before > 0, "the settings page must be scrolled");
       await form.locator(".segs .opt", { hasText: "S3" }).click();
@@ -123,13 +121,13 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       await box(L.region).fill("auto");
       await box(L.key).fill("AKIDEXAMPLE");
       await box(L.secret).fill("s3cr3t");
-      await form.locator("label.tick").first().click(); // path-style
+      const pathStyle = form.locator("label.tick").first();
+      await reach(page, pathStyle);
+      await pathStyle.click();
       // the WebDAV address typed before is still there, and isn't sent;
       // going back and forth, the shorter form too, moves nothing
       // the fields filled scrolled the choice out of sight: wheeled back to it
-      await page.mouse.move(450, 300);
-      for (let i = 0; i < 40 && (await segTop()) < 10; i++) { await page.mouse.wheel(0, -40); await page.waitForTimeout(15); }
-      await page.waitForTimeout(300);
+      await wheelTo(page, form.locator(".segs .opt", { hasText: "WebDAV" }), 300);
       const at = await top();
       assert.ok(at > 0, "the settings page must still be scrolled");
       await form.locator(".segs .opt", { hasText: "WebDAV" }).click();

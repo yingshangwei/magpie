@@ -59,8 +59,8 @@ function serve(lang, data) {
   };
 }
 
-// the cards' heights and the list's, once the page has settled: two frames
-// with nothing moving
+// The packed cards can keep the same height during the first part of a
+// curve's growth. Wait for its height animation too, then four still frames.
 async function settled(page) {
   return page.evaluate(() => new Promise((done) => {
     const read = () => JSON.stringify({
@@ -70,8 +70,9 @@ async function settled(page) {
     let last = read(), still = 0;
     const tick = () => {
       const now = read();
-      if (now === last && ++still >= 4) return done(JSON.parse(now));
-      if (now !== last) { last = now; still = 0; }
+      const moving = [...document.querySelectorAll("#subscriptionUsage .qc-plot")].some((p) => p.getAnimations().some((a) => a.playState === "running"));
+      if (!moving && now === last && ++still >= 4) return done(JSON.parse(now));
+      if (moving || now !== last) { last = now; still = 0; }
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);

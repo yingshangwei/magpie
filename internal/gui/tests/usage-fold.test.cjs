@@ -14,6 +14,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
+const { reach } = require("./reader.cjs");
 
 const assets = path.resolve(__dirname, "../assets");
 const ago = (m) => new Date(Date.now() - m * 60e3).toISOString();
@@ -126,13 +127,7 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // scroll): packed into columns (#860), Codex's card is under ZCode's,
       // past this short window's foot
       const wheelTo = async (l) => {
-        for (let i = 0; i < 20; i++) {
-          const y = (await l.boundingBox()).y;
-          if (y > 60 && y + 40 < 300) break;
-          await page.mouse.wheel(0, y > 60 ? 60 : -60);
-          await page.waitForTimeout(150);
-        }
-        await page.waitForTimeout(300);
+        await reach(page, l);
       };
       await wheelTo(two.locator(".quota-acct-fold"));
       const twoAt = await two.evaluate((e) => e.getBoundingClientRect().top);
