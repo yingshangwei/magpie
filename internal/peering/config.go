@@ -5,6 +5,7 @@ package peering
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
@@ -51,6 +52,13 @@ type Peer struct {
 type Config struct {
 	Version int    `json:"version"`
 	Peers   []Peer `json:"peers"`
+}
+
+// Revision binds a local editor or sync preview to the policy it showed.
+func Revision(p Peer) string {
+	b, _ := json.Marshal(p)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func Path() string { return filepath.Join(appdir.Config(), "peers.json") }
@@ -108,9 +116,22 @@ func Save(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	return Update(func(current *Config) error { *current = c; return nil })
+}
+
+// Update reads and edits under the same cross-process lock as Save. A
+// device editor must not overwrite another device saved in the meantime.
+func Update(change func(*Config) error) error {
 	configMu.Lock()
 	defer configMu.Unlock()
-	if _, err := Load(Path()); err != nil {
+	c, err := Load(Path())
+	if err != nil {
+		return err
+	}
+	if err := change(&c); err != nil {
+		return err
+	}
+	if err := c.Validate(); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(c, "", "  ")

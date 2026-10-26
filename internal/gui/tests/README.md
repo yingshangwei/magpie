@@ -1,5 +1,13 @@
 # Dropdown browser regression
 
+`peer-devices.test.cjs` exercises Settings → Sync and backup → Device links:
+creating and joining a pairing, cancelling a draft, exact model sharing and
+configuration-copy selections, separate key permissions, stale-save errors,
+manual sync, offline status and confirmed removal. It runs at desktop and
+narrow widths in all five languages on Chromium and WebKit. All endpoints
+use local fixtures; no real pairing, credentials or gateway is accessed.
+`ARTIFACT_DIR` retains screenshots of the editor and device list.
+
 `plugin-gateway.test.cjs` checks gateway-only plugin identification, the existing
 JSON options editor and aggregate diagnostics in all five languages on Chromium
 and WebKit. It uses local API fixtures, saves options through the real page, and

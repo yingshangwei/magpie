@@ -17,6 +17,7 @@ public relay or NAT traversal when neither endpoint is reachable.
 | Imported provider | `peer-<link-id>` in `providers.json`, no API key, in-process transport to the existing link | [`peer.go`](../../internal/provider/peer.go), [`proxy.go`](../../internal/provider/proxy.go), [`transport.go`](../../internal/netproxy/transport.go) |
 | Configuration copy | Explicit API configuration schema, scoped model list, optional API keys, copy ownership and native-account restriction | [`peer_sync.go`](../../internal/provider/peer_sync.go) |
 | CLI | `peer init`, `apply`, `list`, `status`, `refresh`, `sync` | [`peers_cli.go`](../../internal/cli/peers_cli.go) |
+| Device settings | Local pairing, exact model selection, status and explicit provider push in Settings → Sync and backup → Manage devices | [`peers.go`](../../internal/gui/peers.go), [`peers.js`](../../internal/gui/assets/peers.js) |
 
 `peers.json` belongs to this computer and is not included in setup backups.
 It is written atomically with mode 0600. A read or parse failure refuses
@@ -24,6 +25,41 @@ peer operations and closes active links at reconciliation. No peers file
 means there are no links. CLI status and list never return pairing tokens.
 
 ## Two-computer setup
+
+In the desktop app, open **Settings → Sync and backup → Device links →
+Manage devices**. Choose **Create pairing**, name the other computer, choose
+what this computer will share or receive, and Save. The resulting pairing
+code goes into **Join pairing** on the other computer. Joining reads only
+the link ID and secret from the code; it does not accept permissions from
+it. Only the computer dialing fills in the other's reachable WSS address.
+An empty address waits for a connection. A local SSH tunnel can use WS on
+loopback. Pairing does not provide a public relay or change network sharing.
+
+Each model has independent **Share calls** and **Copy config** selections.
+Sharing calls keeps keys at the serving computer. Copying configuration
+requires an explicit **Sync providers… → Sync now** action and the receiver's
+exact source-provider allow list. Sending and receiving keys are separate
+unchecked choices. Native Claude/Codex, subscription, plugin and remote
+provider configurations are not offered for copying. No sharing, import or
+credential permissions are enabled by creating a pairing.
+
+The device list hides pairing tokens; **Pairing code** reveals one only
+when asked. The GUI reads and saves locally even when a separate daemon
+serves the gateway; live status, refresh and sync go to that daemon's local
+control routes. An unreachable daemon is shown as an error, independently
+of the saved device list. A failed policy read is never displayed as an
+empty list. Device controls reject remote web clients, forwarded requests,
+foreign origins, frames and non-loopback Host headers; use the desktop app
+or a signed-in browser on the same computer.
+
+Editors save one link under the same file lock as the CLI and check its
+revision. An edit, removal or sync preview that became stale is refused;
+unrelated links added meanwhile remain intact. A sync carries the displayed
+revision through to the running gateway, which checks it before exporting.
+Removing or disabling a link closes it at reconciliation; API provider
+copies already received remain independent local providers.
+
+The CLI is also available:
 
 Use a gateway built from this branch on both ends. `peer init home-link
 peer.json` writes a private template with a fresh random token; it grants
@@ -88,7 +124,7 @@ are `peer-home-link/claude/YOUR_CLAUDE_MODEL_ID` and
 `peer-home-link/my-api/YOUR_API_MODEL_ID` in this example. The provider
 supports the Chat, Responses and Messages gateway protocols using the
 remote model's advertised capabilities; it is not tied to one protocol.
-The configuration controls are CLI-only in this version.
+The imported provider's models can be selected in Providers as usual.
 
 The first import selects the shared models. Later catalog refreshes keep
 the local selection, including Select none, and remove models no longer
@@ -131,8 +167,12 @@ copy. B owns its normal provider/account selection and runtime behavior.
 Missing or empty export lists share nothing. Model names are exact, with no
 wildcards or group expansion. A request must name the remote provider as
 well as the model; routing candidates on B are checked again. Routing
-groups and remote providers cannot be re-exported, so A cannot relay
-through B to a third gateway. API credentials, account data, GUI, callbacks,
+groups and remote providers cannot be re-exported to another peer. Thus
+peer A → peer B → peer C is not supported. An ordinary authorized HTTP API
+client may call B's imported peer provider, and B forwards that model
+request over its existing connection to C. This uses B's normal gateway
+access controls; it is not a generic TCP proxy or a two-peer relay service.
+API credentials, account data, GUI, callbacks,
 files and administrative routes are outside the tunnel's operation list.
 The wire accepts only relative operation paths. Model access is limited to
 Chat, Responses, Messages, count_tokens, embeddings and rerank; image/video
@@ -221,6 +261,11 @@ backpressure, disconnect without replay (chat and retrieval), completed
 HTTP error fallback, malformed frames, explicit model scope, refresh after
 local selections or catalog changes, policy revocation, sanitized headers,
 configuration permissions and GUI edits followed by another sync.
+Device-editor tests cover a cancelled draft, redacted pairing codes, stale
+edit/sync rejection, per-link changes, unreadable policies, local-only
+administration and a separate gateway process. Browser tests cover pairing,
+sharing/copy scopes, key consent, failed sync and removal at desktop and
+narrow widths in all five languages, in Chromium and WebKit.
 The native bridge test uses the existing fake Claude Code process fixture;
 it does not establish real-account or two-physical-machine compatibility.
 
@@ -228,4 +273,5 @@ it does not establish real-account or two-physical-machine compatibility.
 go test -race ./internal/peerwire ./internal/peering
 go test -race -tags nogui ./internal/gateway ./internal/provider ./internal/cli ./internal/netproxy ./internal/gui -run TestPeer
 go test -tags nogui -timeout 30m ./...
+node --test internal/gui/tests/peer-devices.test.cjs
 ```

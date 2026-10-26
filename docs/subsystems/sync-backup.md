@@ -1,5 +1,10 @@
 # Sync and backup
 
+Settings also provides **Device links → Manage devices** for direct model
+calls and selected API provider copies between two gateways. That feature
+has its own local pairing and permissions; it does not use the encrypted
+backup transport. See [peer federation](peer-federation.md#two-computer-setup).
+
 `internal/backup` collects magpie's portable setup into a passphrase-sealed
 bundle. `internal/davsync` keeps that bundle in a WebDAV folder, an S3 bucket
 or a GitHub repository. It merges changes between computers; it does not

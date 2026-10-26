@@ -4120,3 +4120,18 @@ input[type="checkbox"]:disabled { opacity: .45; }
 .row.pref .sub.proxy-check { margin-top: 3px; white-space: normal; overflow-wrap: anywhere; }
 .proxy-check[hidden] { display: none; }
 .row.pref .sub.proxy-check.err { color: var(--red); }
+/* Device pairing uses the existing editor and its scrolling body. */
+#peerList { margin-bottom: 16px; }
+.modal .editor.peer-editor > .ebody { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.peer-editor .bar { flex-wrap: wrap; }
+.peer-editor .peer-field { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+.peer-field input, .peer-field textarea { width: 100%; box-sizing: border-box; }
+.peer-check { display: flex; align-items: flex-start; gap: 8px; }
+.peer-check input { flex: 0 0 auto; margin-top: 3px; }
+.peer-models { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.peer-models summary { overflow-wrap: anywhere; }
+.peer-models .peer-check { margin-top: 12px; }
+.peer-model-grid { display: grid; grid-template-columns: minmax(0, 1fr) 72px 72px; gap: 10px; margin-top: 12px; align-items: center; font-size: 12px; }
+.peer-model-grid input { justify-self: center; }
+.peer-model-name { overflow-wrap: anywhere; }
+.peer-device .val { flex-wrap: wrap; }

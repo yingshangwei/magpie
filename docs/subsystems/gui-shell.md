@@ -7,6 +7,13 @@ with no binding generator and no bundler. `magpie web` serves the same page
 to a browser for a machine with no desktop. Package `internal/gui` hosts all
 three.
 
+Settings → Sync and backup includes Device links. Its local-only
+`/api/peers/*` routes and `assets/peers.js` manage pairing, exact model
+permissions and manual API configuration copies; live operations bridge to
+the running gateway even when a separate daemon owns it. See
+[peer federation](peer-federation.md#two-computer-setup) for the permissions,
+stale-editor checks and connection limits.
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |

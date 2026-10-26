@@ -398,6 +398,7 @@ func (s *Server) peerControl(w http.ResponseWriter, r *http.Request) {
 	var q struct {
 		Peer     string `json:"peer"`
 		Provider string `json:"provider,omitempty"`
+		Revision string `json:"revision,omitempty"`
 	}
 	if err := decodePeerJSON(r.Body, &q); err != nil {
 		writeError(w, provider.Chat, http.StatusBadRequest, err.Error())
@@ -406,6 +407,10 @@ func (s *Server) peerControl(w http.ResponseWriter, r *http.Request) {
 	peer, err := s.peerHub().Peer(q.Peer)
 	if err != nil {
 		writeError(w, provider.Chat, http.StatusBadRequest, err.Error())
+		return
+	}
+	if q.Revision != "" && q.Revision != peering.Revision(peer) {
+		writeError(w, provider.Chat, http.StatusConflict, "Device settings changed; reopen the device before saving")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)

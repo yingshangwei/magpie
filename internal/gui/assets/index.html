@@ -410,6 +410,12 @@
     <div id="otelList"></div>
   </section>
   <section class="set-page" id="setPage-sync" role="tabpanel" aria-labelledby="setTab-sync">
+    <div class="list prefs" id="peerList">
+      <div class="row pref">
+        <div class="who"><div class="name" data-t>Device links</div><div class="sub" data-t>Use another computer's models or copy selected API providers</div></div>
+        <div class="val"><button type="button" class="text" id="managePeers" data-t>Manage devices</button></div>
+      </div>
+    </div>
     <div class="list prefs" id="syncList"></div>
   </section>
   <section class="set-page" id="setPage-about" role="tabpanel" aria-labelledby="setTab-about">
@@ -462,6 +468,7 @@
 <script src="plugins/usage/client.js"></script>
 <script src="purposes.js"></script>
 <script src="app.js"></script>
+<script src="peers.js"></script>
 <script src="plugins.js"></script>
 <script src="pluginpages.js"></script>
 <script src="context.js"></script>
