@@ -60,8 +60,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
         await row("server").hover();
         assert.ok(b.x >= rowBox.x && b.x + b.width <= rowBox.x + rowBox.width + 1, "the badge runs out of its row");
         assert.equal(await page.locator("select").count(), 0, "no native select");
-        const lefts = await page.locator("#gatewayKeys .key-quotas").evaluateAll((els) => els.map((e) => getComputedStyle(e).borderLeftStyle));
-        assert(lefts.every((s) => s === "none"), "a coloured left border");
+        const lefts = await page.evaluate(() => [...document.querySelectorAll("#gatewayKeys .key-quotas")].map((e) => getComputedStyle(e).borderLeftStyle));
+        assert(lefts.length && lefts.every((s) => s === "none"), "a coloured left border or no badges");
         assert.deepEqual(errors, []);
       });
     }

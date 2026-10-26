@@ -47,8 +47,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await row("work").locator(".key-limit").count(), 0, "a key without a limit says nothing under its row");
       // nothing about it is drawn with a coloured left border
       for (const sel of [".key-limit", ".amodels.limit"]) {
-        const styles = await page.locator("#gatewayKeys " + sel).evaluateAll((els) => els.map((e) => getComputedStyle(e).borderLeftStyle));
-        assert(styles.every((s) => s === "none"), sel + " has a left border");
+        const styles = await page.evaluate((sel) => [...document.querySelectorAll("#gatewayKeys " + sel)].map((e) => getComputedStyle(e).borderLeftStyle), sel);
+        assert(styles.length && styles.every((s) => s === "none"), sel + " has a left border or no badges");
       }
       const view = page.locator("#view-gateway");
       const scrolled = async () => [await view.evaluate((v) => v.scrollTop), await page.evaluate(() => window.scrollY)];

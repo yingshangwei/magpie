@@ -114,8 +114,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.deepEqual((await menu.locator(".pm-item.on").allTextContents()).map((s) => s.trim()), ["relay/gone" + w.gone, "relay/nobody@example.com" + w.off]);
       await page.keyboard.press("Escape");
       await menu.waitFor({ state: "detached" });
-      const lefts = await page.locator("#gatewayKeys .key-models, .proto-menu .pm-item").evaluateAll((els) => els.map((e) => getComputedStyle(e).borderLeftStyle));
-      assert(lefts.every((s) => s === "none"), "a coloured left border");
+      const lefts = await page.evaluate(() => [...document.querySelectorAll("#gatewayKeys .key-models, .proto-menu .pm-item")].map((e) => getComputedStyle(e).borderLeftStyle));
+      assert(lefts.length && lefts.every((s) => s === "none"), "a coloured left border or no badges");
       assert.deepEqual(errors, []);
     });
   }

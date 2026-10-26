@@ -30,8 +30,8 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await badge("server").evaluate((b) => b.classList.contains("set")), true);
       assert.equal((await badge("work").textContent()).trim(), w.all);
       // nothing drawn with a coloured left border
-      const lefts = await page.locator("#gatewayKeys .key-models").evaluateAll((els) => els.map((e) => getComputedStyle(e).borderLeftStyle));
-      assert(lefts.every((s) => s === "none"), "a badge has a left border");
+      const lefts = await page.evaluate(() => [...document.querySelectorAll("#gatewayKeys .key-models")].map((e) => getComputedStyle(e).borderLeftStyle));
+      assert(lefts.length && lefts.every((s) => s === "none"), "a badge has a left border or no badges");
       const view = page.locator("#view-gateway");
       const scrolled = async () => [await view.evaluate((v) => v.scrollTop), await page.evaluate(() => window.scrollY)];
       await page.mouse.move(500, 300);
