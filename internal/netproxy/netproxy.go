@@ -12,6 +12,7 @@ package netproxy
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -155,6 +156,15 @@ type route struct {
 }
 
 func (d *dispatch) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := Held(req.Context()); err != nil {
+		return nil, err
+	}
+	if t := transportOf(req.Context()); t != nil {
+		return t.RoundTrip(req)
+	}
+	if req.URL.Hostname() == "peer.invalid" {
+		return nil, errors.New("peer requests require a connected peer transport")
+	}
 	r := route{choice: choiceOf(req.Context()), h1: HTTP1 != nil && HTTP1(req.URL), unchecked: uncheckedHost(req)}
 	if r == (route{}) {
 		return v4Retry(d.base, req)

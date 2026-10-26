@@ -16,7 +16,7 @@ func TestOwnGroupsWaitOnThePlugin(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", "")
-	if err := store(file{Groups: []Group{{ID: "mine", Name: "Mine", Members: []string{"a/x", "b/y"}}}}); err != nil {
+	if err := storeInitial(file{Groups: []Group{{ID: "mine", Name: "Mine", Members: []string{"a/x", "b/y"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	entries := []Entry{
@@ -99,14 +99,14 @@ func TestOwnGroupRefreshesTheGate(t *testing.T) {
 	groupRefreshed.Store(0)
 	groupEntries(entries)
 	// a found group the user edited is kept in the file, Auto still
-	if err := store(file{Groups: []Group{{ID: "auto-m", Name: "m", Auto: true, Members: []string{"b/m", "a/m"}}}}); err != nil {
+	if err := storeInitial(file{Groups: []Group{{ID: "auto-m", Name: "m", Auto: true, Members: []string{"b/m", "a/m"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	groupEntries(entries)
 	if asked != 0 {
 		t.Fatalf("refreshed %d times with found groups alone", asked)
 	}
-	if err := store(file{Groups: []Group{{ID: "mine", Name: "Mine", Members: []string{"a/m"}}}}); err != nil {
+	if err := storeInitial(file{Groups: []Group{{ID: "mine", Name: "Mine", Members: []string{"a/m"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	has := func() bool {

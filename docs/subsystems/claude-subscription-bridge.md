@@ -382,6 +382,14 @@ is either refused or kept and then taken out by `removeRun`.
 
 ## Finding the run: keys
 
+Requests from a [peer link](peer-federation.md) add that link's id to the
+owner before deriving exact, rewritten and saved-session keys. A local
+request and requests from different links never continue the same run.
+Tool-result matching, including renamed-call matching, filters by this
+ownership domain before it claims or aborts a run. Account selection and
+account-change behavior within a domain stay the same; the native account
+and its credentials still belong to the serving computer.
+
 - `nextTurn` splits a request at its last reply that calls no tool: the
   conversation up to it, and the messages since (with any calls and results
   the client made itself after it).

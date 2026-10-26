@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/yetone/magpie/internal/netproxy"
+	"github.com/yetone/magpie/internal/peering"
 	"github.com/yetone/magpie/internal/settings"
 )
 
@@ -17,6 +18,10 @@ import (
 // provider the user added and asked not to have its certificate checked
 // (InsecureTLS) has its own hosts' taken as they are, no other host's.
 func (p Provider) Via(ctx context.Context) context.Context {
+	ctx = netproxy.WithTransport(ctx, nil)
+	if p.Peer != "" {
+		ctx = netproxy.WithTransport(ctx, peering.Transport(p.Peer))
+	}
 	ctx = netproxy.With(ctx, p.ProxyChoice())
 	if p.InsecureTLS && p.TakesInsecureTLS() {
 		ctx = netproxy.WithUncheckedTLS(ctx, p.UncheckedHosts()...)

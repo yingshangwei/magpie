@@ -45,7 +45,7 @@ func leftPlugins(t *testing.T) (foo, bar string) {
 // writeProviders puts ps in providers.json as the user's file has them.
 func writeProviders(t *testing.T, ps []Provider) {
 	t.Helper()
-	if err := store(file{Providers: ps}); err != nil {
+	if err := storeInitial(file{Providers: ps}); err != nil {
 		t.Fatal(err)
 	}
 }

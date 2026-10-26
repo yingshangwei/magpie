@@ -412,6 +412,9 @@ func providerCmd(args []string) error {
 			return err
 		}
 		to := strings.ToLower(strings.TrimSpace(p.ID))
+		if err := before.CheckRename(to); err != nil {
+			return err
+		}
 		p.ID = from
 		if err := provider.Save(*p); err != nil {
 			return err

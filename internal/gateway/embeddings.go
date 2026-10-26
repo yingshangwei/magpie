@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yetone/magpie/internal/peering"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/usage"
 )
@@ -210,10 +211,14 @@ func (s *Server) serveRetrieval(w http.ResponseWriter, r *http.Request, path, op
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), retrieveTimeout)
+		var outcome *peering.Outcome
+		if c.p.Peer != "" {
+			ctx, outcome = peering.Observe(ctx)
+		}
 		b, got, code, err := s.retrieveAs(ctx, c.p, base+path, ctype, out)
 		cancel()
 		call.Millis = time.Since(start).Milliseconds()
-		if err != nil && !last && r.Context().Err() == nil {
+		if err != nil && !last && r.Context().Err() == nil && !outcome.Failed() {
 			skipped = append(skipped, c.label()+": "+err.Error())
 			continue
 		}

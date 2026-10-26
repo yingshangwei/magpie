@@ -53,6 +53,9 @@ func Rename(from, to string) error {
 	if i < 0 {
 		return fmt.Errorf("no provider %q", from)
 	}
+	if err := f.Providers[i].CheckRename(to); err != nil {
+		return err
+	}
 	if slices.ContainsFunc(f.Providers, func(p Provider) bool { return p.ID == to }) {
 		return fmt.Errorf("there is a provider %q already", to)
 	}
@@ -95,12 +98,13 @@ func Rename(from, to string) error {
 		g.Classifier = renamedRef(g.Classifier, from, to)
 		g.Pick = renamedRef(g.Pick, from, to)
 	}
-	// the vendor's list last fetched goes with it
-	os.Rename(catalog.LivePath(from), catalog.LivePath(to))
-	os.Rename(catalog.LivePath(decisionsID(from)), catalog.LivePath(decisionsID(to)))
-	if err := store(f); err != nil {
+	if err := commitProviders(f); err != nil {
 		return err
 	}
+	// Move caches only after the new id was committed successfully.
+	os.Rename(catalog.LivePath(from), catalog.LivePath(to))
+	os.Rename(catalog.LivePath(decisionsID(from)), catalog.LivePath(decisionsID(to)))
+	catalog.Touched()
 	// so is its StepFun sign-in, kept by provider id
 	if err := renameStepFun(from, to); err != nil {
 		return err

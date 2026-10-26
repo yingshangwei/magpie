@@ -3003,7 +3003,11 @@ const (
 // byRemap) or why none was found. The results are named by Claude Code's
 // ids for the calls, as the run waits on them, when the client named them
 // by its own (remap).
-func (b *subscriptionBridge) match(req *Request) (*subscriptionRun, []Part, string) {
+func (b *subscriptionBridge) match(req *Request, scopes ...string) (*subscriptionRun, []Part, string) {
+	peer := ""
+	if len(scopes) > 0 {
+		peer = scopes[0]
+	}
 	i := len(req.Messages)
 	for i > 0 && req.Messages[i-1].Role != "assistant" {
 		i--
@@ -3063,7 +3067,7 @@ func (b *subscriptionBridge) match(req *Request) (*subscriptionRun, []Part, stri
 		b.mu.Lock()
 		for _, p := range fresh {
 			run := b.calls[p.CallID]
-			if run == nil {
+			if run == nil || ownerPeer(run.owner) != peer {
 				continue
 			}
 			if found != nil && found != run {
@@ -3081,7 +3085,7 @@ func (b *subscriptionBridge) match(req *Request) (*subscriptionRun, []Part, stri
 			h := sha256.New()
 			hashMessages(h, req.Messages, func(int) { before[hex.EncodeToString(h.Sum(nil))] = true })
 		}
-		run, named, w := b.remap(req.Model, calls, fresh, before)
+		run, named, w := b.remap(req.Model, calls, fresh, before, peer)
 		if run != nil {
 			return run, named, byRemap
 		}
@@ -3102,7 +3106,11 @@ func (b *subscriptionBridge) match(req *Request) (*subscriptionRun, []Part, stri
 // arguments. Only one may be: two conversations that are the same so far,
 // down to their calls, would have their results told to either, and a new
 // run is started instead. The results are returned named by the run's ids.
-func (b *subscriptionBridge) remap(model string, calls, fresh []Part, before map[string]bool) (*subscriptionRun, []Part, string) {
+func (b *subscriptionBridge) remap(model string, calls, fresh []Part, before map[string]bool, scopes ...string) (*subscriptionRun, []Part, string) {
+	peer := ""
+	if len(scopes) > 0 {
+		peer = scopes[0]
+	}
 	if len(calls) == 0 {
 		return nil, nil, noRunWaiting
 	}
@@ -3128,6 +3136,9 @@ func (b *subscriptionBridge) remap(model string, calls, fresh []Part, before map
 	var found *subscriptionRun
 	var ids []string // the run's id for each of calls
 	for _, run := range runs {
+		if ownerPeer(run.owner) != peer {
+			continue
+		}
 		run.mu.Lock()
 		shown, told := slices.Clone(run.shown), run.told
 		waiting := !run.closed && !run.parkedAt.IsZero() && (run.model == "" || model == "" || run.model == model)
@@ -3897,6 +3908,19 @@ func ownerAccount(owner string) (user string, own bool) {
 	return f[1], len(f) > 2 && f[2] == ownHome
 }
 
+// ownerPeer isolates remote callers before a tool-result match can claim or
+// abort another caller's run. The empty domain preserves local account-switch
+// behavior; the account and own-home fields remain ownerAccount's unchanged.
+func ownerPeer(owner string) string {
+	head, _, _ := strings.Cut(owner, "\x00")
+	if strings.HasPrefix(head, "peer:") {
+		if peer, _, ok := strings.Cut(head, "/"); ok {
+			return peer
+		}
+	}
+	return ""
+}
+
 // whyNoRun says why a turn that goes on from a reply found no run waiting
 // for it, "" when it isn't such a turn, for the log line before a new run
 // is told the whole conversation (#1638): a run of the conversation waits
@@ -3970,6 +3994,9 @@ func (s *Server) serveClaudeSubscription(w http.ResponseWriter, r *http.Request,
 		body = advisorTools(body, p, model, wiresOf(r.Context()))
 	}
 	owner := p.ID
+	if peer, ok := r.Context().Value(peerScopeKey{}).(peerScope); ok {
+		owner = "peer:" + peer.id + "/" + owner
+	}
 	if p.Account != nil {
 		owner += "\x00" + p.Account.User
 		if p.Account.AgentsOwn() {
@@ -4090,7 +4117,7 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request, from 
 		}
 	}
 
-	run, results, how := s.subscription.match(req)
+	run, results, how := s.subscription.match(req, ownerPeer(owner))
 	// Another request has the run's calls answered, or is answering them,
 	// or the run ended. Claude Code's fork sub-agents each start from their
 	// lead's conversation as it stands, a result for each of its calls and

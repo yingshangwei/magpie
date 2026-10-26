@@ -71,6 +71,7 @@ const usage = `magpie — one place to pick every agent's model
   magpie library [sync|instructions|mcp|skill]   the instructions, MCP servers and skills written into every agent (magpie library help)
 
   magpie providers                list your providers: host, key, models, who uses them
+  magpie peer                     connect gateways and sync selected providers (magpie peer help)
   magpie presets                  the vendors magpie knows: add one with just a key
   magpie provider add <preset> <key>   e.g. magpie provider add deepseek sk-…
   magpie provider add <name> k=v…      a custom vendor (magpie provider for the fields)
@@ -355,6 +356,8 @@ func run(args []string) error {
 		return presets()
 	case "provider":
 		return providerCmd(args)
+	case "peer":
+		return peerCmd(args[1:])
 	case "models":
 		return models(args[1:])
 	case "model":

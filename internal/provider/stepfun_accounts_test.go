@@ -19,7 +19,7 @@ func stepfunHome(t *testing.T, ps ...Provider) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	forgetPlanQuotas()
-	if err := store(file{Providers: ps}); err != nil {
+	if err := storeInitial(file{Providers: ps}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -212,7 +212,7 @@ func TestStepFunOldSessionMoved(t *testing.T) {
 			t.Fatalf("written over: %s", b)
 		}
 		// added later, the provider on its site takes it
-		if err := store(file{Providers: []Provider{stepfunOn("stepfun-cn", "StepFun (China)", "com"), stepfunOn("stepfun", "StepFun", "ai")}}); err != nil {
+		if err := storeInitial(file{Providers: []Provider{stepfunOn("stepfun-cn", "StepFun (China)", "com"), stepfunOn("stepfun", "StepFun", "ai")}}); err != nil {
 			t.Fatal(err)
 		}
 		if !StepFunSignedIn("stepfun") {

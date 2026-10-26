@@ -16,6 +16,7 @@ import (
 
 	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/budget"
+	"github.com/yetone/magpie/internal/peering"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/usage"
@@ -252,6 +253,12 @@ func lanGuard(next http.Handler) http.Handler {
 		// the allow list comes before the key: one that leaked is of no
 		// use from an address left out of it
 		if refuseNotAllowed(w, r) {
+			return
+		}
+		// This one endpoint authenticates a dedicated pairing token before
+		// upgrading. It grants only the peer handler's explicit capabilities.
+		if r.URL.Path == peering.ConnectPath {
+			next.ServeHTTP(w, r)
 			return
 		}
 		remote := !local(r)

@@ -5,6 +5,11 @@ bundle. `internal/davsync` keeps that bundle in a WebDAV folder, an S3 bucket
 or a GitHub repository. It merges changes between computers; it does not
 clone a working tree or synchronize arbitrary files.
 
+[Peer federation](peer-federation.md) separately supports an explicit push
+of selected API provider configuration over an authenticated WebSocket.
+Its local pairing policy, `peers.json`, is not collected into a backup.
+Native Claude/Codex configuration copying on that path is disabled in code.
+
 ## Sources of truth
 
 - [`Config`, `Configure`, `Status` and `syncOnce`](../../internal/davsync/davsync.go)

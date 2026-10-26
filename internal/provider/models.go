@@ -1517,6 +1517,11 @@ func (p Provider) Picks() []string {
 // to have held every model when they hold every one released up to the
 // newest of them, and a model released after it is the new one.
 func (p Provider) withNewlyListed(picks []string, avail []catalog.Model) []string {
+	// Peer selections are explicit grants. A newly listed model never
+	// expands a copied configuration or the local peer provider's picks.
+	if p.Peer != "" || p.PeerSource != "" {
+		return picks
+	}
 	if len(avail) == 0 {
 		return picks
 	}

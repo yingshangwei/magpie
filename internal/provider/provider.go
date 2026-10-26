@@ -28,7 +28,6 @@ import (
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/lastgood"
 	"github.com/yetone/magpie/internal/settings"
-	"github.com/yetone/magpie/internal/steady"
 )
 
 // Protocol is a wire API magpie can speak to an upstream.
@@ -54,6 +53,12 @@ type Provider struct {
 	Icon   string   `json:"icon,omitempty"`
 	Preset string   `json:"preset,omitempty"` // preset this was created from, if any
 	Key    string   `json:"key"`              // API key, as typed by the user
+	// Peer is the configured WebSocket link carrying this remote provider.
+	// Its URL is only a routing label; it must never fall back to HTTP.
+	Peer string `json:"peer,omitempty"`
+	// PeerSource identifies a provider copied by an explicitly allowed peer
+	// sync. Only that source may update it; its model selection stays fixed.
+	PeerSource string `json:"peerSource,omitempty"`
 
 	// AccessKeyID and SecretAccessKey are a Volcengine account's access
 	// key (TakesVolcAccessKey), what Ark tells its Coding or Agent Plan's
@@ -410,6 +415,9 @@ type Provider struct {
 }
 
 type file struct {
+	// revision is the exact generation this edit was read from. It is
+	// private so neither a file on disk nor a backup can supply one.
+	revision  *fileRevision
 	Providers []Provider `json:"providers"`
 	Groups    []Group    `json:"groups,omitempty"`
 	// Searches are the web search APIs a model's search goes to when no
@@ -463,8 +471,9 @@ func (e *unreadableError) Unwrap() []error { return []error{ErrUnreadable, e.err
 // catalog to write over. Only a missing file is a first use.
 func read() (file, error) {
 	var f file
-	b, err := steady.ReadFile(Path())
+	b, revision, err := readProviderFile()
 	if errors.Is(err, os.ErrNotExist) {
+		f.revision = revision
 		return f, nil
 	}
 	if err != nil {
@@ -485,6 +494,7 @@ func read() (file, error) {
 			return file{}, &unreadableError{Path(), err}
 		}
 	}
+	f.revision = revision
 	return f, nil
 }
 
@@ -529,28 +539,10 @@ func Routings() ([]string, error) {
 // that a read at that moment sees the old catalog or the new one, never a
 // file cut short.
 func store(f file) error {
-	p := Path()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := commitProviders(f); err != nil {
 		return err
 	}
-	// a group as it was read has the models its patterns matched then
-	// among its members: they are found again each time, never written
-	f.Groups = slices.Clone(f.Groups)
-	for i := range f.Groups {
-		f.Groups[i] = f.Groups[i].stored()
-	}
-	b, err := json.MarshalIndent(f, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := lastgood.Keep(p, validProviders, 0o600); err != nil {
-		return err
-	}
-	if err := writePrivate(p, append(b, '\n')); err != nil {
-		return err
-	}
-	pruneIcons(f)
-	// what agents were handed of the catalog may be out of date now
+	// Callbacks may themselves edit providers: release the commit locks first.
 	catalog.Touched()
 	return nil
 }
@@ -754,6 +746,12 @@ func Save(p Provider) error {
 		return errors.New("Google Vertex AI is asked with your Google credentials, not an API key")
 	}
 	p = normalize(p)
+	if err := validatePeerProvider(p); err != nil {
+		return err
+	}
+	if err := freezePeerModels(&p); err != nil {
+		return err
+	}
 	p.IconURL = "" // import-only: never stored
 	if p.ID == "" {
 		p.ID = Slug(p.Name)
@@ -1149,6 +1147,9 @@ func Delete(id string) error {
 
 // keyOptional is true for local servers, which usually have no key.
 func keyOptional(p Provider) bool {
+	if p.Peer != "" && validatePeerProvider(p) == nil {
+		return true // pairing belongs to peers.json, never a provider's key
+	}
 	if pr := Preset(p.Preset); pr != nil && pr.NoKey {
 		return true
 	}

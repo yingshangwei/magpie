@@ -118,7 +118,7 @@ func TestMovedAccountsKeepTheirOrder(t *testing.T) {
 // the account: they are kept under its id, not its sign-ins' "plugin:grok".
 func TestMovedLoginProxy(t *testing.T) {
 	movedGrok(t)
-	if err := store(file{Providers: []Provider{{ID: "grok", Proxy: "http://127.0.0.1:1", AccountProxies: map[string]string{"me@example.com": "direct"}}}}); err != nil {
+	if err := storeInitial(file{Providers: []Provider{{ID: "grok", Proxy: "http://127.0.0.1:1", AccountProxies: map[string]string{"me@example.com": "direct"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for user, want := range map[string]string{"me@example.com": "direct", "other@example.com": "http://127.0.0.1:1"} {

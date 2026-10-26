@@ -34,6 +34,7 @@ import (
 	"github.com/yetone/magpie/internal/gwbudget"
 	"github.com/yetone/magpie/internal/gwmw"
 	"github.com/yetone/magpie/internal/gwtool"
+	"github.com/yetone/magpie/internal/peering"
 	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/provider"
@@ -355,10 +356,13 @@ type Call struct {
 
 // Server is the gateway.
 type Server struct {
-	client *http.Client
-	mu     sync.Mutex
-	recent []Call
-	calls  uint64 // the last Call.ID given
+	peerOnce   sync.Once
+	peers      *peering.Hub
+	peerEditMu sync.Mutex
+	client     *http.Client
+	mu         sync.Mutex
+	recent     []Call
+	calls      uint64 // the last Call.ID given
 	// unfit remembers the endpoints each provider's models were turned away
 	// from, so every later turn goes straight to one that takes them.
 	unfit        map[string]bool
@@ -500,6 +504,8 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 	// `magpie plugin builtin`) come and go here too
 	stopObservers := usage.ServeObservers()
 	defer stopObservers()
+	stopPeers := s.peerHub().Start(ctx)
+	defer stopPeers()
 	// and the user's own routing groups are served while plugins/groups is
 	// on (provider.GateGroups); one made a moment ago turns it on as it is
 	// looked up, not on KeepFresh's next look
@@ -612,6 +618,9 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 // Handler routes the client APIs.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/peers/status", s.peerControl)
+	mux.HandleFunc("POST /v1/peers/refresh", s.peerControl)
+	mux.HandleFunc("POST /v1/peers/sync", s.peerControl)
 	mux.HandleFunc("GET /{$}", s.info)
 	// an OpenAI-compatible base URL answers too: Empryo lists a provider with
 	// no key of its own only when its baseURL does
@@ -684,7 +693,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, provider.Chat, http.StatusNotFound, "magpie serves /v1/chat/completions, /v1/responses, /v1/messages, /v1/systemone, /v1/images/generations, /v1/images/edits, /v1/videos, /v1/embeddings, /v1/rerank, /v1/audio/transcriptions, /v1/audio/translations and /v1beta/models/*")
 	})
-	return s.counted(holdCatalog(corsGuard(callerGuard(withCaller(keyLimited(mux))))))
+	next := s.counted(holdCatalog(corsGuard(callerGuard(withCaller(keyLimited(mux))))))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == peering.ConnectPath {
+			s.peerHub().ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // responsesOverHTTP answers a GET on /v1/responses, which is how a client
@@ -2562,7 +2578,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		var queued int64       // ms it waited for a slot of its key's or account's
 		var cacheAt, ruleCacheAt time.Time
 		var laneErr error // turned away by its key's or account's queue
-		at := &wireAt{}   // the level a translated request was built at
+		var peerOutcome *peering.Outcome
+		at := &wireAt{} // the level a translated request was built at
 		// the models Copilot's Auto picked for it, where from, and which
 		// were refused (#256)
 		autoPicked := func() []provider.AutoPick { return nil }
@@ -2586,6 +2603,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// a stream that fails before anything is said is let go at
 			// once (hw.stop), not read on until the vendor hangs up
 			ctx, stop := context.WithCancel(withWireAt(r.Context(), at))
+			if c.p.Peer != "" {
+				ctx, peerOutcome = peering.Observe(ctx)
+			}
 			if isGroup {
 				ctx = groupTry(ctx)
 			}
@@ -2762,6 +2782,22 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// the agent went away: nobody failed, and nobody else is asked
 			call.Status, call.Error = canceled(r.Context())
 			try.Status, try.Error, try.Fail = call.Status, call.Error, failCanceled
+			watched.attempt(call, try, c.p.ID, sent, hw, capture)
+			s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+			break
+		}
+		if peerOutcome.Failed() {
+			// The peer may already have started the upstream turn. A
+			// lost reply is terminal, including for a group's fallback;
+			// reconnect only makes future requests possible.
+			if !hw.passing {
+				call.Status = http.StatusBadGateway
+				if call.Error == "" {
+					call.Error = "peer exchange failed; the request was not replayed"
+				}
+				failTo(w, kept, from, call.Status, call.Error)
+			}
+			try.Status, try.Error, try.Fail = call.Status, call.Error, failOther
 			watched.attempt(call, try, c.p.ID, sent, hw, capture)
 			s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
 			break
@@ -3440,6 +3476,10 @@ func sinceStart(before, d time.Duration) int64 {
 // attempt sends a request to one provider. call.To stays empty when the
 // provider has no endpoint to send it to.
 func (s *Server) attempt(w http.ResponseWriter, r *http.Request, from provider.Protocol, p provider.Provider, model string, body []byte, call *Call) (int, string) {
+	if !s.peerCandidateAllowed(r, p, model, body) {
+		const message = "model is outside this peer's shared selection"
+		return writeError(w, from, http.StatusForbidden, message), message
+	}
 	// Normalize for the actual destination, separately on each fallback.
 	// Native ChatGPT accounts accept standalone tool outputs themselves.
 	if from == provider.Responses && (p.Account == nil || p.Account.Agent != "codex") {

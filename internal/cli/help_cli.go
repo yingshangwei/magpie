@@ -38,6 +38,8 @@ func helpFor(args []string) string {
 		return usage
 	case "model":
 		return modelUsage
+	case "peer":
+		return peerUsage
 	case "group", "groups":
 		if len(args) > 1 && (args[1] == "rule" || args[1] == "rules") {
 			return ruleUsage

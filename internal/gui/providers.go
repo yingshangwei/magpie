@@ -1441,6 +1441,12 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 					in.ID = req.From
 				}
 				old, _ = provider.Find(in.ID)
+				if rename && old != nil {
+					if err := old.CheckRename(to); err != nil {
+						fail(rw, err)
+						return
+					}
+				}
 				if req.Proxy != nil {
 					in.Proxy = *req.Proxy
 				} else if old != nil {
@@ -1536,6 +1542,8 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 					in.BalanceToken = old.BalanceToken
 				}
 				if old != nil {
+					// Peer ownership belongs to the saved provider, not the form.
+					in.Peer, in.PeerSource = old.Peer, old.PeerSource
 					// the other keys are kept apart, in the Accounts list
 					in.Keys = old.Keys
 					// the editor's picks, or as they were
