@@ -842,7 +842,7 @@ body.window .field.solo { grid-column: auto; }
    side by side they are at either end, and a count on a line of its own
    starts at the left, under the name */
 .quota-labels { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 2px 6px; margin-bottom: 4px; font-size: 10.5px; color: var(--muted); }
-.quota-labels > span { white-space: nowrap; }
+.quota-labels > span { min-width: 0; white-space: normal; }
 .quota-labels .quota-n { max-width: 100%; padding: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; color: var(--fg-2); font-size: inherit; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .quota-labels .quota-n:hover { color: var(--fg); }
 .quota-labels .quota-n > span { white-space: nowrap; }
@@ -851,7 +851,7 @@ body.window .field.solo { grid-column: auto; }
    nowrap spans out when it checks a line fits and then cuts the line with
    the ellipsis ("剩余 100…" for 100 / 100 积分 · 剩余 100%) */
 .quota-windows.stacked .quota-n { flex-basis: 100%; display: flex; flex-wrap: wrap; column-gap: 4px; white-space: normal; }
-.quota-windows.stacked .quota-n > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.quota-windows.stacked .quota-n > span { min-width: 0; white-space: normal; overflow: hidden; text-overflow: ellipsis; }
 .quota-reset { display: flex; flex-wrap: wrap; column-gap: 4px; margin-top: 4px; font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums; }
 /* each part of the reset line goes whole onto a line of its own when it
    doesn't fit beside the others, and only one wider than the card breaks
