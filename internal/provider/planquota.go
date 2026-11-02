@@ -63,9 +63,9 @@ func planQuotaSourceOf(p Provider) (planQuotaSource, bool) {
 			// Ollama Cloud's included allowance (#1888); a key with none
 			// gets no card
 			return planQuotaSource{ollamaBalanceURL, true, readOllamaPlan, false}, true
-		case "astergate.cc":
-			if base == asterGateOrigin || strings.HasPrefix(base, asterGateOrigin+"/") {
-				return planQuotaSource{url: asterGateOrigin + "/usage-session/report", sure: true}, true
+		case "astergate.cc", "beta.astergate.cc":
+			if origin := asterGateOriginFor(base); origin != "" {
+				return planQuotaSource{url: origin + "/usage-session/report", sure: true}, true
 			}
 		}
 	}
@@ -624,8 +624,8 @@ func planKeyWindows(ctx context.Context, p Provider, src planQuotaSource, key st
 // readPlanKey preserves a vendor's measurement time when its report is
 // itself cached, rather than dating that reading when we fetched it.
 func readPlanKey(ctx context.Context, p Provider, src planQuotaSource, key string) (r keyReading, team bool, err error) {
-	if hostOf(src.url) == "astergate.cc" {
-		r, err = asterGateWindows(ctx, key)
+	if origin := asterGateOriginFor(src.url); origin != "" {
+		r, err = asterGateWindows(ctx, key, origin)
 		return r, false, err
 	}
 	r.plan, r.ws, team, err = planKeyWindows(ctx, p, src, key)

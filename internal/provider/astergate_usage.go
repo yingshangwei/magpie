@@ -23,9 +23,20 @@ import (
 	"time"
 )
 
-const asterGateOrigin = "https://astergate.cc"
+// asterGateOriginFor keeps usage login on the provider's exact known site.
+func asterGateOriginFor(base string) string {
+	for _, origin := range []string{"https://astergate.cc", "https://beta.astergate.cc"} {
+		if base == origin || strings.HasPrefix(base, origin+"/") {
+			return origin
+		}
+	}
+	return ""
+}
 
-func asterGateWindows(ctx context.Context, key string) (keyReading, error) {
+func asterGateWindows(ctx context.Context, key, origin string) (keyReading, error) {
+	if asterGateOriginFor(origin) != origin || origin == "" {
+		return keyReading{}, fmt.Errorf("AsterGate usage: unsupported origin")
+	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return keyReading{}, err
@@ -33,7 +44,7 @@ func asterGateWindows(ctx context.Context, key string) (keyReading, error) {
 	c := &http.Client{Transport: http.DefaultClient.Transport, Jar: jar,
 		Timeout:       20 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	b, _, err := asterGateRequest(ctx, c, "POST", "/challenge", nil)
+	b, _, err := asterGateRequest(ctx, c, origin, "POST", "/challenge", nil)
 	if err != nil {
 		return keyReading{}, err
 	}
@@ -44,21 +55,21 @@ func asterGateWindows(ctx context.Context, key string) (keyReading, error) {
 	if json.Unmarshal(b, &challenge) != nil || challenge.Challenge == "" {
 		return keyReading{}, fmt.Errorf("AsterGate usage: invalid challenge")
 	}
-	jwe, err := asterGateJWE(key, challenge.Challenge, challenge.PublicKey)
+	jwe, err := asterGateJWE(key, challenge.Challenge, challenge.PublicKey, origin)
 	if err != nil {
 		return keyReading{}, err
 	}
 	login, _ := json.Marshal(map[string]string{"challenge": challenge.Challenge, "jwe": jwe})
-	if _, _, err = asterGateRequest(ctx, c, "POST", "/login", login); err != nil {
+	if _, _, err = asterGateRequest(ctx, c, origin, "POST", "/login", login); err != nil {
 		return keyReading{}, err
 	}
 	defer func() {
 		logout, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		defer cancel()
-		_, _, _ = asterGateRequest(logout, c, "POST", "/logout", nil)
+		_, _, _ = asterGateRequest(logout, c, origin, "POST", "/logout", nil)
 	}()
 	read := func() (keyReading, string, error) {
-		b, _, err := asterGateRequest(ctx, c, "GET", "/report?timezone=UTC", nil)
+		b, _, err := asterGateRequest(ctx, c, origin, "GET", "/report?timezone=UTC", nil)
 		if err != nil {
 			return keyReading{}, "", err
 		}
@@ -73,7 +84,7 @@ func asterGateWindows(ctx context.Context, key string) (keyReading, error) {
 	}
 	// Only the card's explicit refresh asks AsterGate to refresh its own
 	// cached OAuth reading. A cooldown keeps the report just read.
-	b, _, err = asterGateRequest(ctx, c, "GET", "/refresh-status", nil)
+	b, _, err = asterGateRequest(ctx, c, origin, "GET", "/refresh-status", nil)
 	if err != nil {
 		return keyReading{}, err
 	}
@@ -97,7 +108,7 @@ func asterGateWindows(ctx context.Context, key string) (keyReading, error) {
 		return r, nil
 	}
 	body, _ := json.Marshal(map[string]string{"account_id": account})
-	_, code, err := asterGateRequest(ctx, c, "POST", "/refresh", body)
+	_, code, err := asterGateRequest(ctx, c, origin, "POST", "/refresh", body)
 	if code == http.StatusTooManyRequests {
 		return r, nil
 	}
@@ -111,17 +122,17 @@ func asterGateWindows(ctx context.Context, key string) (keyReading, error) {
 // asterGateRequest never follows a redirect or includes the API key in a
 // header, URL or error. The API key appears only inside the encrypted JWE
 // at login; subsequent requests carry the restricted session cookie.
-func asterGateRequest(ctx context.Context, c *http.Client, method, path string, body []byte) ([]byte, int, error) {
-	req, err := http.NewRequestWithContext(ctx, method, asterGateOrigin+"/usage-session"+path, bytes.NewReader(body))
+func asterGateRequest(ctx context.Context, c *http.Client, origin, method, path string, body []byte) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, origin+"/usage-session"+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-usage-client", "1")
-	req.Header.Set("x-usage-origin", asterGateOrigin)
-	req.Header.Set("Origin", asterGateOrigin)
-	req.Header.Set("Referer", asterGateOrigin+"/key-usage")
+	req.Header.Set("x-usage-origin", origin)
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Referer", origin+"/key-usage")
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, 0, err
@@ -139,7 +150,7 @@ func asterGateRequest(ctx context.Context, c *http.Client, method, path string, 
 }
 
 // asterGateJWE follows key-usage's RSA-OAEP-256 / A256GCM compact JWE.
-func asterGateJWE(key, challenge, publicKey string) (string, error) {
+func asterGateJWE(key, challenge, publicKey, origin string) (string, error) {
 	enc := base64.RawURLEncoding
 	der, err := enc.DecodeString(publicKey)
 	if err != nil {
@@ -173,7 +184,7 @@ func asterGateJWE(key, challenge, publicKey string) (string, error) {
 		return "", err
 	}
 	header := enc.EncodeToString([]byte(`{"alg":"RSA-OAEP-256","enc":"A256GCM"}`))
-	payload, _ := json.Marshal(map[string]string{"key": key, "challenge": challenge, "origin": asterGateOrigin})
+	payload, _ := json.Marshal(map[string]string{"key": key, "challenge": challenge, "origin": origin})
 	sealed := gcm.Seal(nil, iv, payload, []byte(header))
 	n := len(sealed) - gcm.Overhead()
 	return strings.Join([]string{header, enc.EncodeToString(ek), enc.EncodeToString(iv), enc.EncodeToString(sealed[:n]), enc.EncodeToString(sealed[n:])}, "."), nil

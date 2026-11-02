@@ -63,14 +63,18 @@ selection auto-expands when a vendor lists new models. See
 
 ### AsterGate shared account windows
 
-A keyed provider at `https://astergate.cc` reads its shared Claude account's
-5-hour and weekly windows through the site's `astergate-self-usage` v1
-protocol. `asterGateWindows` opens a restricted `/usage-session` with the
-key encrypted as RSA-OAEP-256 / A256GCM JWE, keeps its cookie in memory, and
-logs out after each read. Requests follow the provider's proxy and the
-allowance-read setting; redirects are refused. Only an explicit card refresh
-asks the site to update its cached reading, respecting its per-account
-refresh status and 429 cooldown.
+A keyed provider at `https://astergate.cc` or `https://beta.astergate.cc`
+reads its shared Claude account's 5-hour and weekly windows through that
+site's `astergate-self-usage` v1 protocol. `asterGateWindows` opens a
+restricted `/usage-session` with the key encrypted as RSA-OAEP-256 /
+A256GCM JWE, keeps its cookie in memory, and logs out after each read. The
+request headers, encrypted login origin and session endpoints use the
+provider's site; neither site sends its key or
+cookie to the other. Other hosts, plaintext HTTP and nonstandard ports are
+not recognized. Requests follow the provider's proxy and the allowance-read
+setting; redirects are refused. Only an explicit card refresh asks the site
+to update its cached reading, respecting its per-account refresh status and
+429 cooldown.
 
 `readPlanKey` supplies the same windows to `PlanQuotas` and `KeyAllowance`.
 The card retains the vendor's `checked_at`, and the Fable weekly window

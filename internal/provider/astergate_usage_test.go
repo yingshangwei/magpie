@@ -41,7 +41,7 @@ type asterGateFake struct {
 	now                                 time.Time
 }
 
-func asterGateServer(t *testing.T) *asterGateFake {
+func asterGateServer(t *testing.T, origin string) *asterGateFake {
 	t.Helper()
 	f := &asterGateFake{now: time.Now().UTC().Truncate(time.Second)}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -55,9 +55,9 @@ func asterGateServer(t *testing.T) *asterGateFake {
 	enc := base64.RawURLEncoding
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
-		if r.Header.Get("X-Host") != "astergate.cc" || r.Header.Get("Origin") != "https://astergate.cc" ||
-			r.Header.Get("x-usage-client") != "1" || r.Header.Get("x-usage-origin") != "https://astergate.cc" ||
-			r.Header.Get("Referer") != "https://astergate.cc/key-usage" || r.Header.Get("Authorization") != "" ||
+		if r.Header.Get("X-Host") != strings.TrimPrefix(origin, "https://") || r.Header.Get("Origin") != origin ||
+			r.Header.Get("x-usage-client") != "1" || r.Header.Get("x-usage-origin") != origin ||
+			r.Header.Get("Referer") != origin+"/key-usage" || r.Header.Get("Authorization") != "" ||
 			strings.Contains(string(b), "sk-aster-test") || strings.Contains(r.URL.String(), "sk-aster-test") {
 			t.Error("usage request has the wrong origin or exposed its key")
 			w.WriteHeader(400)
@@ -74,7 +74,7 @@ func asterGateServer(t *testing.T) *asterGateFake {
 				return
 			}
 			payload, err := openAsterGateJWE(key, login.JWE)
-			if err != nil || payload["key"] != "sk-aster-test" || payload["challenge"] != login.Challenge || payload["origin"] != "https://astergate.cc" {
+			if err != nil || payload["key"] != "sk-aster-test" || payload["challenge"] != login.Challenge || payload["origin"] != origin {
 				t.Errorf("usage login cannot be decrypted or has wrong claims: %v", err)
 				w.WriteHeader(401)
 				return
@@ -179,9 +179,18 @@ func openAsterGateJWE(key *rsa.PrivateKey, token string) (map[string]string, err
 }
 
 func TestAsterGateQuotaCard(t *testing.T) {
+	for _, c := range []struct{ name, origin string }{
+		{"main", "https://astergate.cc"},
+		{"beta", "https://beta.astergate.cc"},
+	} {
+		t.Run(c.name, func(t *testing.T) { testAsterGateQuotaCard(t, c.origin) })
+	}
+}
+
+func testAsterGateQuotaCard(t *testing.T, origin string) {
 	keyLimitsHome(t)
-	f := asterGateServer(t)
-	p := Provider{ID: "astergate-test", Name: "AsterGate", Anthropic: "https://astergate.cc", Key: "sk-aster-test"}
+	f := asterGateServer(t, origin)
+	p := Provider{ID: "astergate-test", Name: "AsterGate", Anthropic: origin + "/v1", Key: "sk-aster-test"}
 	if err := Save(p); err != nil {
 		t.Fatal(err)
 	}
@@ -253,20 +262,20 @@ func TestAsterGateReadWhenAsked(t *testing.T) {
 
 func TestAsterGateReadFailures(t *testing.T) {
 	keyLimitsHome(t)
-	f := asterGateServer(t)
+	f := asterGateServer(t, "https://astergate.cc")
 	ctx := context.WithValue(Asked(context.Background()), cardRefreshKey{}, cardRefresh{"astergate-test", ""})
 	f.limited.Store(true)
-	r, err := asterGateWindows(ctx, "sk-aster-test")
+	r, err := asterGateWindows(ctx, "sk-aster-test", "https://astergate.cc")
 	if err != nil || len(r.ws) != 3 || f.refreshes.Load() != 1 || f.reports.Load() != 1 {
 		t.Fatalf("429 cooldown lost the cached report or retried: %v", err)
 	}
 	f.redirect.Store(true)
-	if _, err := asterGateWindows(context.Background(), "sk-aster-test"); err == nil || !strings.Contains(err.Error(), "307") {
+	if _, err := asterGateWindows(context.Background(), "sk-aster-test", "https://astergate.cc"); err == nil || !strings.Contains(err.Error(), "307") {
 		t.Fatalf("usage followed a redirect: %v", err)
 	}
 	f.redirect.Store(false)
 	f.down.Store(true)
-	if _, err := asterGateWindows(context.Background(), "sk-aster-test"); err == nil || !strings.Contains(err.Error(), "503") {
+	if _, err := asterGateWindows(context.Background(), "sk-aster-test", "https://astergate.cc"); err == nil || !strings.Contains(err.Error(), "503") {
 		t.Fatalf("missing report became an empty allowance: %v", err)
 	}
 	if f.logins.Load() != f.logouts.Load() {
@@ -310,7 +319,11 @@ func TestAsterGateReportScope(t *testing.T) {
 	if r, _, err := readAsterGateReport(pooled); err == nil || len(r.ws) != 0 {
 		t.Fatal("multiple upstream accounts became one invented percentage")
 	}
-	for _, base := range []string{"http://astergate.cc", "https://astergate.cc.attacker.invalid", "https://astergate.cc:8443"} {
+	for _, base := range []string{
+		"http://astergate.cc", "https://astergate.cc.attacker.invalid", "https://astergate.cc:8443",
+		"http://beta.astergate.cc", "https://beta.astergate.cc.attacker.invalid", "https://beta.astergate.cc:8443",
+		"https://astergate.cc@another.invalid", "https://beta.astergate.cc@another.invalid", "https://other.astergate.cc",
+	} {
 		if _, ok := planQuotaSourceOf(Provider{Anthropic: base}); ok {
 			t.Errorf("usage key sent for an unrecognized origin: %s", base)
 		}
