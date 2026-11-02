@@ -36,9 +36,9 @@ func asterGateReport(now time.Time) string {
 }
 
 type asterGateFake struct {
-	logins, reports, refreshes, logouts atomic.Int32
-	cooldown, limited, redirect, down   atomic.Bool
-	now                                 time.Time
+	logins, reports, refreshes, logouts     atomic.Int32
+	cooldown, limited, redirect, down, idle atomic.Bool
+	now                                     time.Time
 }
 
 func asterGateServer(t *testing.T, origin string) *asterGateFake {
@@ -104,7 +104,13 @@ func asterGateServer(t *testing.T, origin string) *asterGateFake {
 					t.Error("usage report has no valid timezone")
 				}
 				report := asterGateReport(f.now)
-				if f.refreshes.Load() > 0 {
+				if f.idle.Load() {
+					// The beta report on 2026-11-02 omitted resets_at for
+					// its unused five-hour window after the previous one ended.
+					report = strings.Replace(report, `"used_ratio":0.2,`, `"used_ratio":0,`, 1)
+					reset := fmt.Sprintf(`"resets_at":%q,`, f.now.Add(time.Hour).Format(time.RFC3339Nano))
+					report = strings.Replace(report, reset, "", 1)
+				} else if f.refreshes.Load() > 0 {
 					report = strings.Replace(report, `"used_ratio":0.2`, `"used_ratio":0.4`, 1)
 				}
 				io.WriteString(w, report)
@@ -257,6 +263,65 @@ func TestAsterGateReadWhenAsked(t *testing.T) {
 	qs := PlanQuotas(context.Background())
 	if len(qs) != 1 || !readDeferred(qs[0].Error) || len(dialed()) != 0 {
 		t.Fatalf("automatic AsterGate read ignored When I ask: %+v, dialed %v", qs, dialed())
+	}
+}
+
+func TestAsterGateIdleWindow(t *testing.T) {
+	keyLimitsHome(t)
+	f := asterGateServer(t, "https://beta.astergate.cc")
+	f.idle.Store(true)
+	p := Provider{ID: "astergate-test", Anthropic: "https://beta.astergate.cc", Key: "sk-aster-test"}
+	if err := Save(p); err != nil {
+		t.Fatal(err)
+	}
+	for _, ctx := range []context.Context{
+		context.Background(),
+		context.WithValue(Asked(context.Background()), cardRefreshKey{}, cardRefresh{p.ID, ""}),
+	} {
+		qs := PlanQuotas(ctx)
+		if len(qs) != 1 || qs[0].Error != "" || len(qs[0].Windows) != 3 {
+			t.Fatalf("unused five-hour window hid the account's quota card: %+v", qs)
+		}
+		w := qs[0].Windows[0]
+		if w.Used != 0 || w.ResetsAt != nil || qs[0].ReadAt == nil || !qs[0].ReadAt.Equal(f.now.Add(-11*time.Minute)) {
+			t.Fatalf("unused window invented usage, a reset or a measurement time: %+v", qs[0])
+		}
+		a, ok := KeyAllowance(p)
+		if !ok || !a.Full("claude-opus-5-5", 100, f.now).IsZero() || a.Full("claude-fable-5-1", 100, f.now).IsZero() {
+			t.Fatalf("unused window changed the weekly model limits: %v %+v", ok, a)
+		}
+	}
+	if f.refreshes.Load() != 1 || f.logouts.Load() != 2 {
+		t.Fatal("unused window stopped explicit refresh or left the usage session open")
+	}
+}
+
+func TestAsterGateWindowWithoutReset(t *testing.T) {
+	now := time.Now().UTC()
+	reset := fmt.Sprintf(`"resets_at":%q`, now.Add(time.Hour).Format(time.RFC3339Nano))
+	for _, c := range []struct {
+		name, ratio, reset string
+		valid              bool
+	}{
+		{"unused omitted", "0", "", true},
+		{"unused null", "0", `"resets_at":null,`, true},
+		{"used omitted", "0.2", "", false},
+		{"used null", "0.2", `"resets_at":null,`, false},
+		{"unknown usage", "null", "", false},
+		{"zero time", "0", `"resets_at":"0001-01-01T00:00:00Z",`, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b := strings.Replace(asterGateReport(now), `"used_ratio":0.2`, `"used_ratio":`+c.ratio, 1)
+			b = strings.Replace(b, reset+",", c.reset, 1)
+			r, _, err := readAsterGateReport([]byte(b))
+			if c.valid {
+				if err != nil || len(r.ws) != 3 || r.ws[0].Used != 0 || r.ws[0].ResetsAt != nil {
+					t.Fatalf("reported unused window was lost or given a reset: %+v %v", r, err)
+				}
+			} else if err == nil || len(r.ws) != 0 {
+				t.Fatal("incomplete window became a known allowance")
+			}
+		})
 	}
 }
 

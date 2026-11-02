@@ -79,6 +79,9 @@ to update its cached reading, respecting its per-account refresh status and
 `readPlanKey` supplies the same windows to `PlanQuotas` and `KeyAllowance`.
 The card retains the vendor's `checked_at`, and the Fable weekly window
 counts only Fable, including after the cached card is restored from disk.
+An unused window can report zero usage without a reset time; it remains
+visible with no invented reset. A window with nonzero usage still requires
+a valid reset time.
 The verified account scope contains one shared Claude account; missing
 measurements, unrecognized windows and multiple upstream accounts report
 unavailable rather than an invented zero or aggregate. Reported request

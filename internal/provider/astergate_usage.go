@@ -227,7 +227,12 @@ func readAsterGateReport(b []byte) (keyReading, string, error) {
 	r := keyReading{plan: a.Plan}
 	seen := map[string]bool{}
 	for _, w := range a.Windows {
-		if w.Account != a.ID || w.Ratio == nil || *w.Ratio < 0 || *w.Ratio > 1 || w.Reset == nil || w.Reset.IsZero() || w.Checked.IsZero() || seen[w.Kind] {
+		if w.Account != a.ID || w.Ratio == nil || *w.Ratio < 0 || *w.Ratio > 1 || w.Checked.IsZero() || seen[w.Kind] {
+			return keyReading{}, "", fmt.Errorf("AsterGate usage: incomplete quota window")
+		}
+		// An unused window can have no reset until it starts. Preserve that
+		// absence; a window with usage still needs a valid reset time.
+		if w.Reset == nil && *w.Ratio != 0 || w.Reset != nil && w.Reset.IsZero() {
 			return keyReading{}, "", fmt.Errorf("AsterGate usage: incomplete quota window")
 		}
 		q := QuotaWindow{Used: *w.Ratio * 100, ResetsAt: w.Reset}
