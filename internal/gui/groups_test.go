@@ -11,6 +11,38 @@ import (
 	"github.com/yetone/magpie/internal/provider"
 )
 
+func TestGroupSavePreservesRetryPolicy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if err := provider.Save(provider.Provider{ID: "a", Name: "a", Key: "k", Chat: "http://127.0.0.1:1", Models: []string{"m"}}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	groupRoutes(mux)
+	post := func(extra string) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("POST", "/api/groups/save", strings.NewReader(
+			`{"id":"g","members":["a/m"]`+extra+`}`)))
+		if w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+	}
+	post(`,"retryBeforeFallback":{"count":5,"interval":15,"maxWait":300}`)
+	post(`,"name":"Renamed"`)
+	g, _, _ := provider.FindGroup("group/g")
+	if g.RetryBeforeFallback == nil || *g.RetryBeforeFallback != (provider.RetryPolicy{Count: 5, Interval: 15, MaxWait: 300}) {
+		t.Fatalf("editor dropped retry policy: %+v", g)
+	}
+	post(`,"retryBeforeFallback":{"count":0}`)
+	g, _, _ = provider.FindGroup("group/g")
+	if g.RetryBeforeFallback == nil || g.RetryBeforeFallback.Count != 0 {
+		t.Fatalf("explicit disable was ignored: %+v", g)
+	}
+}
+
 // The Routing view's save with another id than the group had (from)
 // renames it: a found group drops its auto- prefix.
 func TestGroupSaveRenames(t *testing.T) {

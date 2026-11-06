@@ -83,6 +83,10 @@ func servedCandidate(c candidate, tokens int) {
 // a provider rest or after a model-specific rest.
 func clearRest(key string) {
 	restingUntil.Lock()
+	if r := restingUntil.note[key]; r.By == "retry-policy" && restingUntil.m[key].After(time.Now()) {
+		restingUntil.Unlock()
+		return // an overlapping request's success doesn't end a fixed cooldown
+	}
 	delete(restingUntil.m, key)
 	delete(restingUntil.note, key)
 	restingUntil.Unlock()
@@ -399,7 +403,7 @@ type Rest struct {
 	// or is rate limited again as soon as it is back), "restricted" (the
 	// vendor restricted the account: two hours, or until lifted by hand),
 	// "off" (no rest: its provider is set not to rest after an unknown
-	// failure, provider.RestCapOff).
+	// failure, provider.RestCapOff), "retry-policy" (a group's fixed rest).
 	By       string `json:"by"`
 	Failures int    `json:"failures,omitempty"` // in a row, for a backoff
 	// Key is what it rests by, for the app to lift the rest (Unrest)
@@ -742,6 +746,9 @@ func (s *Server) restAfter(c candidate, status int, header http.Header, body []b
 // restAfterMarked keeps an upstream routing fact through gateway error
 // translation without putting it in the response sent to the client.
 func (s *Server) restAfterMarked(c candidate, status int, header http.Header, body []byte, sharedPool bool) Rest {
+	if r, cooling := retryCooling(c); cooling {
+		return r // an overlapping request cannot shorten the configured rest
+	}
 	now := time.Now()
 	d := fallbackCooldown
 	why := failureOf(c, status, body)

@@ -11,6 +11,29 @@ doesn't speak the agent's API, the gateway translates. When an upstream
 fails before any of the reply is sent, the gateway moves to the next
 candidate.
 
+A group can opt into `retryBeforeFallback` (`provider.RetryPolicy`):
+`count` is the number of additional tries on the same account, `interval`
+is the fixed delay in seconds, and `maxWait` is the maximum time
+in seconds from that account's first transient failure. For example,
+`{"count":5,"interval":15,"maxWait":300,"cooldown":600}` permits at most six attempts
+including the original. This explicit interval replaces the default
+Retry-After-based delays. Queueing, pauses and waiting for an upstream
+reply share the budget; a reply that has begun may finish normally. These
+retries happen before resting, sinking or switching the account. They
+replace the last-candidate retries and group-wide patience rounds for
+that request. A positive `cooldown` sets a fixed rest in seconds after
+exhaustion, and sinks the account when Sink is enabled. During that rest,
+even a lone account is not probed; the gateway returns 503 with Retry-After
+if no other member can answer. A concurrent success does not lift it.
+A 429 naming quota is retried too, since a relay's pool may recover shortly.
+Invalid requests, credit exhaustion, revoked credentials,
+refusals, interrupted peer exchanges and replies already sent retain their
+existing handling. The setting is optional and applies to requests naming
+the configured group, not direct provider requests or another enclosing
+group. Existing editors preserve it when saving other group fields;
+explicit `count:0` disables it. See
+[`member_retry.go`](../../internal/gateway/member_retry.go).
+
 For an imported WebSocket peer provider, a failed exchange does not retry
 or fall back: the other gateway may already have started the turn. Complete
 HTTP replies retain ordinary routing behavior. The peer boundary and model

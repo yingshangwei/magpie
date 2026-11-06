@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -388,6 +389,15 @@ func groupRoutes(mux *http.ServeMux) {
 			// (provider.AutoStandIn)
 			moved, err = agent.Reseat(func() error { return provider.SetAutoGroups(body.On) })
 		case "save":
+			// Older editors do not send the optional retry policy. Keep
+			// it unless the caller explicitly supplies a replacement;
+			// a policy with count 0 disables it.
+			if in.RetryBeforeFallback == nil {
+				id := cmp.Or(body.From, in.ID)
+				if old, _, ok := provider.FindGroup(provider.GroupPrefix + id); ok {
+					in.RetryBeforeFallback = old.RetryBeforeFallback
+				}
+			}
 			to := strings.ToLower(strings.TrimSpace(in.ID))
 			if body.From == "" || body.From == to {
 				err = provider.SaveGroup(in)

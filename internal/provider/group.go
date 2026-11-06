@@ -161,6 +161,9 @@ type Group struct {
 	// together: one rate limited with quota left goes behind every other
 	// member's. Not for "rotate" or Manual.
 	Sink bool `json:"sink,omitempty"`
+	// RetryBeforeFallback keeps transient failures on the same account
+	// before cooling it down and asking another member.
+	RetryBeforeFallback *RetryPolicy `json:"retryBeforeFallback,omitempty"`
 	// FirstToken is how many seconds a member's streamed reply may take to
 	// its first content — text, reasoning or a tool call — before the next
 	// member is asked instead, nothing of it having reached the agent; 0
@@ -433,6 +436,10 @@ func withoutRemoved(g Group, have map[string]bool) Group {
 // cleaning one — would change it for every reader in that while, and keep
 // the change there when the save failed.
 func (g Group) own() Group {
+	if g.RetryBeforeFallback != nil {
+		r := *g.RetryBeforeFallback
+		g.RetryBeforeFallback = &r
+	}
 	g.Members = slices.Clone(g.Members)
 	g.Match = slices.Clone(g.Match)
 	g.Matched = slices.Clone(g.Matched)
@@ -1036,6 +1043,9 @@ func (e Entry) Quiet() bool {
 // found makes it the user's.
 func SaveGroup(g Group) error {
 	g = g.own() // cleaned below in place: the caller's lists stay as they were
+	if err := g.RetryBeforeFallback.check(); err != nil {
+		return err
+	}
 	g.ID = strings.ToLower(strings.TrimSpace(g.ID))
 	g.Name = strings.TrimSpace(g.Name)
 	if g.ID == "" {

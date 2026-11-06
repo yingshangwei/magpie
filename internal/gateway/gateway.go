@@ -2296,6 +2296,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	// and the provider's last answer, saved to disk, took seconds on a busy
 	// disk, and the reply's speed counted them as its own)
 	var ended time.Time
+	var retryPolicy *provider.RetryPolicy
+	if isGroup && g.RetryBeforeFallback != nil && g.RetryBeforeFallback.Count > 0 {
+		retryPolicy = g.RetryBeforeFallback
+	}
+	memberRetries := map[string]*memberRetry{}
 	// the compaction a provider set to compact natively seals, read on the
 	// way to Codex, and who sealed it remembered once it has answered
 	// (#1099)
@@ -2314,7 +2319,19 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	}
 	for i := 0; i < len(cands); i++ {
 		c := cands[i]
-		if j := s.laneMate(cands, i, isGroup, gaveWay); j > i {
+		if _, cooling := retryCooling(c); cooling && i < len(cands)-1 {
+			continue
+		}
+		var memberAgain *memberRetry
+		if retryPolicy != nil {
+			key := c.who() + "\x00" + c.model
+			memberAgain = memberRetries[key]
+			if memberAgain == nil {
+				memberAgain = &memberRetry{policy: *retryPolicy}
+				memberRetries[key] = memberAgain
+			}
+		}
+		if j := s.laneMate(cands, i, isGroup, gaveWay); j > i && memberAgain == nil {
 			// its key or account is full, and another of its provider's,
 			// or of its group, has a slot free: that one is asked first,
 			// this one keeps its place after it (#892)
@@ -2337,7 +2354,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// for its allowance running out to be told as that one's error
 		// and once the agent has the stream's headers from an earlier try's
 		// keepalives, for a failure to be told as the stream's error
-		hw := newHoldWriter(w, !last || again < max(lastRetries, rateRetries) || other != nil || kept.sent || autoPicks(c) && repicked < 2 ||
+		hw := newHoldWriter(w, retryPolicy != nil || !last || again < max(lastRetries, rateRetries) || other != nil || kept.sent || autoPicks(c) && repicked < 2 ||
 			patience > 0 && rounds < replanRounds && (waitFrom.IsZero() || time.Since(waitFrom) < patience) || wantWhole)
 		// a compaction's summary is held to its end, for a cut or an
 		// error halfway to go to the next candidate (#2274)
@@ -2583,7 +2600,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// the models Copilot's Auto picked for it, where from, and which
 		// were refused (#256)
 		autoPicked := func() []provider.AutoPick { return nil }
-		if said, ok := verifyHeld(c); ok && last {
+		if rest, cooling := retryCooling(c); cooling {
+			held, heldBack = true, rest.Until
+			call.Status, call.Error = http.StatusServiceUnavailable, "account cooling down until "+heldClock(rest.Until, time.Now())
+			hw.Header().Set("Retry-After", strconv.Itoa(max(1, int(time.Until(rest.Until).Seconds())+1)))
+			writeError(hw, from, call.Status, call.Error)
+		} else if said, ok := verifyHeld(c); ok && last {
 			// the account must be verified first (#152): the agent's
 			// reconnects are told so again, not sent on to a vendor that
 			// just refused it
@@ -2616,6 +2638,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				ctx = withUltra(ctx)
 			}
 			hw.stop = stop
+			finishRetry := func() {}
+			if memberAgain != nil {
+				finishRetry = hw.limitRetry(memberAgain.until)
+			}
 			if autoPicks(c) {
 				// the reply names the pick it went as last (#256: it
 				// named one Copilot refused)
@@ -2673,7 +2699,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 					call.Status, call.Error = s.attempt(hw, r.WithContext(ctx), from, c.p, c.model, attemptBody, &call)
 				}()
 			}
+			finishRetry()
 			stop()
+		}
+		if hw.retryExpired {
+			hw.failure, hw.failMsg = http.StatusGatewayTimeout, "same-account retry wait limit reached"
+			laneErr = nil
 		}
 		if laneErr != nil {
 			// its key's or account's queue was full, or it waited as long
@@ -2944,6 +2975,21 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			}
 			continue
 		}
+		if memberAgain != nil && !held && !hw.retryExpired && memberRetryable(hw) {
+			if wait, ok := memberAgain.pause(time.Now()); ok {
+				try.Fail, try.Again = failureOf(c, hw.code(), hw.errBody()), wait.Milliseconds()
+				s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+				skipped = append(skipped, c.label()+": "+call.Error)
+				if pauseAlive(r.Context(), w, kept, streams, start, wait) {
+					i--
+					continue
+				}
+				call.Status, call.Error = canceled(r.Context())
+				try.Gone = true
+				s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
+				break
+			}
+		}
 		if !last && hw.failed() && hw.turnedAway {
 			// another member may answer what this account was turned away
 			// from, and this one isn't set aside: Antigravity refused the
@@ -3067,7 +3113,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			skipped = append(skipped, c.label()+": "+call.Error)
 			continue
 		}
-		if !last && hw.failed() && failure(hw.code(), hw.errBody()) == failProxy {
+		if !last && hw.failed() && failure(hw.code(), hw.errBody()) == failProxy && memberAgain == nil {
 			// the proxy didn't take the connection: the request never got
 			// to the vendor, so this one doesn't rest, and a member that
 			// goes another way (or the proxy back up) may still answer (#381)
@@ -3114,7 +3160,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			cands = cands[:i+1]
 			last = true
 		}
-		if wait, ok := passing(hw.code(), hw.header, hw.errBody(), again); ok && !protected && !last && hw.failed() && spentAfter(cands[i+1:]) {
+		if wait, ok := passing(hw.code(), hw.header, hw.errBody(), again); retryPolicy == nil && ok && !protected && !last && hw.failed() && spentAfter(cands[i+1:]) {
 			// the others left are out of their allowance (Discord, waroy: a
 			// Codex account run out, Grok busy a moment): this one is the
 			// last that may answer, and is tried again as the last is
@@ -3133,7 +3179,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			}
 			break
 		}
-		if !last && hw.failed() && codexReset(hw.code(), hw.errBody()) {
+		if !last && hw.failed() && codexReset(hw.code(), hw.errBody()) && memberAgain == nil {
 			// ChatGPT closed the connection before answering a large
 			// request (#1628): it may on any account, it often passes, and
 			// no account is at fault for it, so the next is asked and this
@@ -3178,7 +3224,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			if f := failure(hw.code(), hw.errBody()); other == nil && f != failQuota && f != failCredit {
 				other = &Try{Status: call.Status, Error: call.Error}
 			}
-			rest := s.restAfterMarked(c, hw.code(), hw.header, hw.errBody(), hw.sharedPool)
+			rest := s.restMember(c, hw, memberAgain)
 			try.Fail, try.Rest = rest.Why, &rest
 			s.trace.update(tr, func(t *Route) { t.Tries[len(t.Tries)-1] = try })
 			skipped = append(skipped, c.label()+": "+call.Error)
@@ -3187,7 +3233,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			}
 			continue
 		}
-		if _, same := passing(hw.code(), hw.header, hw.errBody(), again); last && patience > 0 && !protected && !hw.turnedAway && !hw.refused && hw.failed() && busy(hw.code(), hw.errBody()) &&
+		if _, same := passing(hw.code(), hw.header, hw.errBody(), again); retryPolicy == nil && last && patience > 0 && !protected && !hw.turnedAway && !hw.refused && hw.failed() && busy(hw.code(), hw.errBody()) &&
 			(len(busyNow) > 0 || waitsOf(c.patience, patienceFallback) > 0 && !same) {
 			// every member has failed, each in a way that passes — busy,
 			// overloaded, rate limited for a moment — with nothing of a
@@ -3227,7 +3273,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				break
 			}
 		}
-		if wait, ok := passing(hw.code(), hw.header, hw.errBody(), again); ok && !protected && !hw.turnedAway && hw.failed() && waitFrom.IsZero() && !kept.tooQuiet(wait) {
+		if wait, ok := passing(hw.code(), hw.header, hw.errBody(), again); retryPolicy == nil && ok && !protected && !hw.turnedAway && hw.failed() && waitFrom.IsZero() && !kept.tooQuiet(wait) {
 			// nobody else is left: the same one again, after a moment (not
 			// what Antigravity turned away: it turns it away again; nor
 			// once the group's patience is spent)
@@ -3264,7 +3310,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				continue
 			}
 		}
-		if last && !held && !hw.passing && hw.failed() && c.p.Account == nil && quotaStatus(hw.code()) && (try.Fail == failQuota || try.Fail == failCredit || failure(hw.code(), hw.errBody()) == failQuota || failure(hw.code(), hw.errBody()) == failCredit) {
+		if last && memberAgain != nil && !held && !hw.passing && (hw.retryExpired || memberRetryable(hw)) {
+			rest := s.restMember(c, hw, memberAgain)
+			try.Fail, try.Rest = rest.Why, &rest
+		}
+		if last && try.Rest == nil && !held && !hw.passing && hw.failed() && c.p.Account == nil && quotaStatus(hw.code()) && (try.Fail == failQuota || try.Fail == failCredit || failure(hw.code(), hw.errBody()) == failQuota || failure(hw.code(), hw.errBody()) == failCredit) {
 			// the last key left is out of its allowance: it rests as the
 			// ones before it did, for the next request to be answered
 			// from the rests until the first of them is back (#1772)
