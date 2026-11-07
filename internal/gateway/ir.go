@@ -376,6 +376,10 @@ type Usage struct {
 	// conversation, which their own replies couldn't (cUsage's
 	// MagpieDeferred): billed with this one, never told as its prompt
 	Deferred *Usage `json:"deferred,omitempty"`
+	// ContextEstimate is the current prompt's estimated size when a native
+	// tool step has not reported usage yet. Clients use it for compaction;
+	// it is never a token charge or added to deferred usage.
+	ContextEstimate int `json:"context_estimate,omitempty"`
 	// Credits is what the reply said the request cost in its plan's own
 	// credits, nil when it said none: WorkBuddy's usage.credit, the
 	// figure its app shows on each reply as "Credits Consumed" (#2512)
@@ -385,6 +389,7 @@ type Usage struct {
 // billed is what the request is billed for: its own count, and what it
 // counted of earlier ones (Deferred).
 func (u Usage) billed() Usage {
+	u.ContextEstimate = 0
 	if d := u.Deferred; d != nil {
 		u.Input += d.Input
 		u.Output += d.Output
@@ -404,7 +409,17 @@ func (u Usage) prompt() int {
 	return u.Input + u.CacheRead + u.CacheWrite
 }
 
+func (u Usage) clientPrompt() int {
+	if n := u.prompt(); n > 0 {
+		return n
+	}
+	return max(u.ContextEstimate, 0)
+}
+
 func (u *Usage) add(v Usage) {
+	if v.ContextEstimate > 0 {
+		u.ContextEstimate = v.ContextEstimate
+	}
 	if v.Iterations != nil && len(*v.Iterations) > 0 {
 		u.Iterations = v.Iterations
 	}

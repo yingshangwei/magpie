@@ -580,6 +580,10 @@ type Settings struct {
 	// carry one (Cursor Private Inference, #1003): one of the levels in
 	// provider.MemberEfforts.
 	AgentEfforts map[string]string `json:"agentEfforts,omitempty"`
+	// AccountEfforts overrides the request's reasoning effort only after
+	// routing has selected that provider/account. Keys are provider ID + "/"
+	// + Provider.AccountID(), so another login or a fallback keeps its own.
+	AccountEfforts map[string]string `json:"accountEfforts,omitempty"`
 	// OrderedModels is the order an agent's lists put its models in, by
 	// agent id and then entry id, as the user dragged them on the Agents
 	// page (Codex's, #855): the ones named first, any other after them.

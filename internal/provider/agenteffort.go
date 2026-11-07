@@ -22,6 +22,19 @@ func AgentEffort(agent string) string {
 	return heldSettings().AgentEfforts[strings.ToLower(agent)]
 }
 
+// AccountEffort is an explicit override for the selected account or key.
+// Unlike AgentEffort it also applies after a group selected its member.
+func AccountEffort(p Provider) string {
+	if p.Account == nil && p.Key == "" {
+		return ""
+	}
+	level := heldSettings().AccountEfforts[p.ID+"/"+p.AccountID()]
+	if !slices.Contains(MemberEfforts, level) {
+		return ""
+	}
+	return level
+}
+
 // SetAgentEffort asks agent's requests for level, one of MemberEfforts;
 // "" asks for none, leaving each request's own.
 func SetAgentEffort(agent, level string) error {

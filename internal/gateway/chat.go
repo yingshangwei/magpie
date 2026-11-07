@@ -939,6 +939,9 @@ type cUsage struct {
 		CachedTokens     int `json:"cached_tokens"`
 		CacheWriteTokens int `json:"cache_write_tokens"`
 	} `json:"magpie_deferred,omitempty"`
+	MagpieNative *struct {
+		Accounting string `json:"accounting"`
+	} `json:"magpie_native,omitempty"`
 }
 
 func (u cUsage) usage() Usage {
@@ -976,7 +979,7 @@ func (u cUsage) usage() Usage {
 }
 
 func (u Usage) chat() map[string]any {
-	in := u.prompt()
+	in := u.clientPrompt()
 	return map[string]any{"prompt_tokens": in, "completion_tokens": u.Output, "total_tokens": in + u.Output,
 		"prompt_tokens_details":     map[string]any{"cached_tokens": u.CacheRead, "cache_write_tokens": u.CacheWrite},
 		"completion_tokens_details": map[string]any{"reasoning_tokens": u.Reasoning}}
@@ -985,10 +988,11 @@ func (u Usage) chat() map[string]any {
 // chatDecoder turns a Chat Completions stream into events. Tool calls come
 // as indexed fragments; it tracks which one is open.
 type chatDecoder struct {
-	started bool
-	tool    int    // index of the open tool call, -1 for none
-	toolID  string // id of the open tool call, as some relays repeat it on every fragment
-	choice  string // index of the first choice seen; an empty string means none yet
+	contextEstimate int // Cursor native pending steps, never billed
+	started         bool
+	tool            int    // index of the open tool call, -1 for none
+	toolID          string // id of the open tool call, as some relays repeat it on every fragment
+	choice          string // index of the first choice seen; an empty string means none yet
 	// Gemini's OpenAI-compatible API, asked for thoughts, may give them
 	// in the text as a leading <thought>…</thought>, and MiniMax's Chat
 	// API (#1267), like the open models served without a reasoning
@@ -1306,8 +1310,15 @@ func (d *chatDecoder) decode(data string, emit func(Event)) error {
 			emit(Event{Kind: KStop, Stop: stopFromChat(c.FinishReason)})
 		}
 	}
-	if ch.Usage != nil && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.MagpieDeferred != nil || ch.Usage.Credit != nil) {
-		emit(Event{Kind: KUsage, Usage: ch.Usage.usage()})
+	if ch.Usage != nil {
+		pending := d.contextEstimate > 0 && ch.Usage.MagpieNative != nil && ch.Usage.MagpieNative.Accounting == "pending"
+		if ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.MagpieDeferred != nil || ch.Usage.Credit != nil || pending {
+			u := ch.Usage.usage()
+			if pending && u.prompt() == 0 {
+				u.ContextEstimate = d.contextEstimate
+			}
+			emit(Event{Kind: KUsage, Usage: u})
+		}
 	}
 	return nil
 }

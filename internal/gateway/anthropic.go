@@ -1302,6 +1302,9 @@ func (u aUsage) usage() Usage {
 // how long they are kept when upstream reported TTLs or some were for an hour.
 func (u Usage) anthropic() aUsage {
 	out := aUsage{InputTokens: u.Input, OutputTokens: u.Output, CacheReadInputTokens: u.CacheRead, CacheCreationInputTokens: u.CacheWrite, Iterations: u.Iterations}
+	if u.prompt() == 0 {
+		out.InputTokens = u.clientPrompt()
+	}
 	if h := min(u.CacheWrite1h, u.CacheWrite); u.cacheCreationReported || h > 0 {
 		out.CacheCreation = &aCacheCreation{Ephemeral5m: u.CacheWrite - h, Ephemeral1h: h}
 	}

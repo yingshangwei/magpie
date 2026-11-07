@@ -11,6 +11,26 @@ doesn't speak the agent's API, the gateway translates. When an upstream
 fails before any of the reply is sent, the gateway moves to the next
 candidate.
 
+`settings.accountEfforts` can force an effort for one selected account or
+API key. Each key is `<provider>/<Provider.AccountID()>`, and each value is
+one of `provider.MemberEfforts`. It is applied to a reasoning model after
+candidate selection, ahead of the client's value, model suffix, agent
+default, group member and routing rule. It is fitted to the selected model's
+supported levels. An absent or invalid value changes nothing; a fallback
+uses its own account's setting and the original request. This configuration
+is separate from the client-wide `agentEfforts` setting.
+
+When Cursor's provider plugin marks a tool step's usage as
+`magpie_native.accounting=pending` with no prompt count, translated
+clients receive the current request's local context estimate so they can
+decide when to compact. The estimate uses the same calculation as Cursor's
+`count_tokens` route. `Usage.ContextEstimate` is separate from input, output,
+cache and deferred billing; the ledger still waits for Cursor's usage.
+Measured prompt usage takes precedence. Replayed replies, other plugins,
+and a zero count without the pending marker retain their existing behavior.
+This does not force compaction, discard history or alter Cursor's retention
+deadlines.
+
 A group can opt into `retryBeforeFallback` (`provider.RetryPolicy`):
 `count` is the number of additional tries on the same account, `interval`
 is the fixed delay in seconds, and `maxWait` is the maximum time

@@ -1262,7 +1262,7 @@ func (u rUsage) usage() Usage {
 }
 
 func (u Usage) responses() map[string]any {
-	in := u.prompt()
+	in := u.clientPrompt()
 	return map[string]any{"input_tokens": in, "output_tokens": u.Output, "total_tokens": in + u.Output,
 		"input_tokens_details":  map[string]any{"cached_tokens": u.CacheRead, "cache_write_tokens": u.CacheWrite},
 		"output_tokens_details": map[string]any{"reasoning_tokens": u.Reasoning}}

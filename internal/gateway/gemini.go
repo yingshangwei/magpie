@@ -547,8 +547,8 @@ func stopToGemini(s string) string {
 // gemini is a Usage as usageMetadata: the prompt count includes cached
 // tokens (see prompt), and thoughts are counted apart from the answer.
 func (u Usage) gemini() map[string]any {
-	out := map[string]any{"promptTokenCount": u.prompt(), "candidatesTokenCount": max(u.Output-u.Reasoning, 0),
-		"totalTokenCount": u.prompt() + u.Output}
+	out := map[string]any{"promptTokenCount": u.clientPrompt(), "candidatesTokenCount": max(u.Output-u.Reasoning, 0),
+		"totalTokenCount": u.clientPrompt() + u.Output}
 	if u.CacheRead > 0 {
 		out["cachedContentTokenCount"] = u.CacheRead
 	}

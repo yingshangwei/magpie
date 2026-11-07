@@ -2484,6 +2484,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// one, a suffix and the turn's pick are more particular
 			fixed = withinLevels(agentPick, levels)
 		}
+		if accountEffort := provider.AccountEffort(c.p); accountEffort != "" && c.p.Thinks(c.model) {
+			// This override belongs to the account selected for this try,
+			// including direct requests and group members. A later fallback
+			// starts from the original body and its own account's setting.
+			fixed, ruled = accountEffort, ""
+		}
 		if ruled != "" {
 			// asked even of a request that asked for no reasoning, as a
 			// member fixed at an effort is; already fitted to its levels
@@ -5669,7 +5675,7 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request, p provider.Pr
 		}
 		return writeVendorError(w, from, res.StatusCode, msg, b), msg
 	}
-	dec := decoderFor(p, actual)
+	dec := decoderFor(p, actual, request)
 	rd, sse := eventStream(res)
 	if !sse {
 		// the provider ignored stream:true; read the whole reply as one
@@ -5918,9 +5924,15 @@ func build(proto provider.Protocol, r *Request, model, host string, rejectTemp b
 // OpenCode reads it, as it came: the plugin knows its vendor and gives its
 // reasoning apart, so a <think> at the head of its text is the model's
 // words, not a block of thinking to take out (Qoder's, #2634).
-func decoderFor(p provider.Provider, proto provider.Protocol) func(data string, emit func(Event)) error {
+func decoderFor(p provider.Provider, proto provider.Protocol, request *Request) func(data string, emit func(Event)) error {
 	if proto == provider.Chat && p.IsPlugin() {
 		d := &chatDecoder{past: true}
+		if p.PluginProvider() == "cursor" && request != nil {
+			// Native tool steps defer billing, but the caller still needs
+			// its context size to compact. Use the same estimate as Cursor's
+			// count_tokens endpoint, kept separate from billed usage.
+			d.contextEstimate = estimate(request)
+		}
 		return d.decode
 	}
 	return decoder(proto)

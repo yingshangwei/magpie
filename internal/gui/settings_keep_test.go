@@ -119,6 +119,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		FastPicks:            map[string][]string{"codex": {"p/n"}},
 		UltraPicks:           map[string][]string{"codex": {"p/n"}},
 		AgentEfforts:         map[string]string{"cursor-local": "high"},
+		AccountEfforts:       map[string]string{"cursor/account-id": "xhigh"},
 		PluginCheckins:       map[string]bool{"fakeco": true},
 		PluginOptions:        map[string]map[string]bool{"fakeco": {"auto": true}},
 		CheckinOff:           []string{"workbuddy|u1"},
