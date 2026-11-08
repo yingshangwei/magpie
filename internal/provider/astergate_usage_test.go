@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -42,7 +43,16 @@ type asterGateFake struct {
 }
 
 func asterGateServer(t *testing.T, origin string) *asterGateFake {
+	return asterGateServerAt(t, origin, "sk-aster-test")
+}
+
+func asterGateServerAt(t *testing.T, base, apiKey string) *asterGateFake {
 	t.Helper()
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origin, prefix := u.Scheme+"://"+u.Host, u.Path
 	f := &asterGateFake{now: time.Now().UTC().Truncate(time.Second)}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -57,13 +67,19 @@ func asterGateServer(t *testing.T, origin string) *asterGateFake {
 		b, _ := io.ReadAll(r.Body)
 		if r.Header.Get("X-Host") != strings.TrimPrefix(origin, "https://") || r.Header.Get("Origin") != origin ||
 			r.Header.Get("x-usage-client") != "1" || r.Header.Get("x-usage-origin") != origin ||
-			r.Header.Get("Referer") != origin+"/key-usage" || r.Header.Get("Authorization") != "" ||
-			strings.Contains(string(b), "sk-aster-test") || strings.Contains(r.URL.String(), "sk-aster-test") {
+			r.Header.Get("Referer") != base+"/key-usage" || r.Header.Get("Authorization") != "" ||
+			strings.Contains(string(b), apiKey) || strings.Contains(r.URL.String(), apiKey) {
 			t.Error("usage request has the wrong origin or exposed its key")
 			w.WriteHeader(400)
 			return
 		}
-		switch r.Method + " " + r.URL.Path {
+		if !strings.HasPrefix(r.URL.Path, prefix+"/usage-session/") {
+			t.Errorf("usage request lost its configured path: %s", r.URL.Path)
+			w.WriteHeader(404)
+			return
+		}
+		request := r.Method + " " + strings.TrimPrefix(r.URL.Path, prefix)
+		switch request {
 		case "POST /usage-session/challenge":
 			json.NewEncoder(w).Encode(map[string]string{"challenge": "test-challenge", "public_key": enc.EncodeToString(der)})
 		case "POST /usage-session/login":
@@ -74,13 +90,13 @@ func asterGateServer(t *testing.T, origin string) *asterGateFake {
 				return
 			}
 			payload, err := openAsterGateJWE(key, login.JWE)
-			if err != nil || payload["key"] != "sk-aster-test" || payload["challenge"] != login.Challenge || payload["origin"] != origin {
+			if err != nil || payload["key"] != apiKey || payload["challenge"] != login.Challenge || payload["origin"] != origin {
 				t.Errorf("usage login cannot be decrypted or has wrong claims: %v", err)
 				w.WriteHeader(401)
 				return
 			}
 			f.logins.Add(1)
-			http.SetCookie(w, &http.Cookie{Name: "usage", Value: "test-session", Path: "/usage-session", Secure: true, HttpOnly: true})
+			http.SetCookie(w, &http.Cookie{Name: "usage", Value: "test-session", Path: prefix + "/usage-session", Secure: true, HttpOnly: true})
 			w.WriteHeader(204)
 		default:
 			cookie, err := r.Cookie("usage")
@@ -89,7 +105,7 @@ func asterGateServer(t *testing.T, origin string) *asterGateFake {
 				w.WriteHeader(401)
 				return
 			}
-			switch r.Method + " " + r.URL.Path {
+			switch request {
 			case "GET /usage-session/report":
 				f.reports.Add(1)
 				if f.redirect.Load() {
@@ -185,18 +201,21 @@ func openAsterGateJWE(key *rsa.PrivateKey, token string) (map[string]string, err
 }
 
 func TestAsterGateQuotaCard(t *testing.T) {
-	for _, c := range []struct{ name, origin string }{
-		{"main", "https://astergate.cc"},
-		{"beta", "https://beta.astergate.cc"},
+	for _, c := range []struct{ name, base, key string }{
+		{"main", "https://astergate.cc", "sk-aster-test"},
+		{"beta", "https://beta.astergate.cc", "sk-aster-test"},
+		{"self-hosted IP path", "https://192.0.2.10/astergate", "agk_self-hosted-test"},
+		{"self-hosted domain", "https://gateway.example.test", "agk_self-hosted-test"},
+		{"self-hosted port and path", "https://gateway.example.test:8443/team/astergate", "agk_self-hosted-test"},
 	} {
-		t.Run(c.name, func(t *testing.T) { testAsterGateQuotaCard(t, c.origin) })
+		t.Run(c.name, func(t *testing.T) { testAsterGateQuotaCard(t, c.base, c.key) })
 	}
 }
 
-func testAsterGateQuotaCard(t *testing.T, origin string) {
+func testAsterGateQuotaCard(t *testing.T, base, key string) {
 	keyLimitsHome(t)
-	f := asterGateServer(t, origin)
-	p := Provider{ID: "astergate-test", Name: "AsterGate", Anthropic: origin + "/v1", Key: "sk-aster-test"}
+	f := asterGateServerAt(t, base, key)
+	p := Provider{ID: "astergate-test", Name: "AsterGate", Anthropic: base + "/v1", Key: key}
 	if err := Save(p); err != nil {
 		t.Fatal(err)
 	}
@@ -249,6 +268,56 @@ func testAsterGateQuotaCard(t *testing.T, origin string) {
 	readKeyAllowance(p, keyAllowanceID(p), gen)
 	if r := keyRead(keyAllowanceID(p)); !r.at.Equal(f.now.Add(-11 * time.Minute)) {
 		t.Fatal("routing cached the fetch time in place of the measurement time")
+	}
+}
+
+func TestAsterGateSelfHostedSource(t *testing.T) {
+	for _, base := range []string{
+		"https://192.0.2.10/astergate", "https://192.0.2.10/astergate/",
+		"https://192.0.2.10/astergate/v1", "https://192.0.2.10/astergate/v1/",
+	} {
+		for _, endpoint := range []string{"chat", "anthropic", "responses"} {
+			p := Provider{Key: "agk_self-hosted-test"}
+			switch endpoint {
+			case "chat":
+				p.Chat = base
+			case "anthropic":
+				p.Anthropic = base
+			case "responses":
+				p.Responses = base
+			}
+			src, ok := planQuotaSourceOf(p)
+			if !ok || src.url != "https://192.0.2.10/astergate/usage-session/report" {
+				t.Errorf("%s at %s has no prefixed allowance source: %+v", endpoint, base, src)
+			}
+			p.Key = "sk-unrelated-provider"
+			if _, ok := planQuotaSourceOf(p); ok {
+				t.Errorf("unrelated provider became AsterGate: %s", base)
+			}
+		}
+	}
+	for _, base := range []string{
+		"http://192.0.2.10/astergate", "https://user:password@gateway.example.test/astergate",
+		"https://gateway.example.test/astergate?key=secret", "https://gateway.example.test/astergate#fragment",
+		"https://gateway.example.test/a/../astergate", "https://gateway.example.test/a%2fastergate",
+	} {
+		if _, ok := planQuotaSourceOf(Provider{Anthropic: base, Key: "agk_self-hosted-test"}); ok {
+			t.Errorf("ambiguous or insecure AsterGate base accepted: %s", base)
+		}
+	}
+}
+
+func TestAsterGateInvalidExtraKeyNeverUsesGenericAuth(t *testing.T) {
+	keyLimitsHome(t)
+	dialed := dialsOut(t)
+	p := Provider{Anthropic: "https://gateway.example.test/astergate", Key: "agk_self-hosted-test"}
+	src, ok := planQuotaSourceOf(p)
+	if !ok {
+		t.Fatal("self-hosted AsterGate has no allowance source")
+	}
+	_, _, err := readPlanKey(context.Background(), p, src, "sk-unrelated-provider")
+	if err == nil || len(dialed()) != 0 {
+		t.Fatalf("invalid extra key fell through to a generic authenticated request: error=%v, dialed=%v", err, dialed())
 	}
 }
 
