@@ -276,7 +276,8 @@ func claudeExtraUsage(out []byte) string {
 // claudeUsageEnv is the environment a /usage read runs Claude Code in:
 // CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC makes /usage skip its request
 // and show only a reading another run left in the last hour, so it stays
-// only when the user set it.
+// only when the user set it. Telemetry, error reports and updates stay off
+// (cleanClaudeEnv).
 func claudeUsageEnv() []string {
 	env := cleanClaudeEnv(os.Environ())
 	if os.Getenv("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "" {
@@ -284,7 +285,7 @@ func claudeUsageEnv() []string {
 			return strings.HasPrefix(e, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=")
 		})
 	}
-	return append(env, "DISABLE_TELEMETRY=1", "DISABLE_ERROR_REPORTING=1", "DISABLE_AUTOUPDATER=1")
+	return env
 }
 
 // oneOffDir is the folder a one-off interactive run (a test, a warm-up)

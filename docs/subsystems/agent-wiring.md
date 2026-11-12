@@ -8,6 +8,10 @@ supported agent: where its config lives, which fields matter and which
 values to offer. It also records what magpie set, so a later change made by
 something else shows up as drift.
 
+Claude Code's wiring does not launch or change already running interactive
+processes. [Claude privacy boundaries](../claude-privacy.md) includes an
+optional per-launch environment example and its limits.
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |

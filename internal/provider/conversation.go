@@ -26,6 +26,8 @@ import (
 	"crypto/rand"
 	"maps"
 	"strings"
+
+	"github.com/yetone/magpie/internal/catalog"
 )
 
 // ThreadPlaceholder is what a header or an extraBody string writes for the
@@ -113,10 +115,26 @@ func (p Provider) AsksThread(ctx context.Context) bool {
 // SentHeaders are p's Headers, with those the user gave the model ctx
 // says is asked after them (WithModel, headersFor), as they go out on a
 // request of ctx's conversation (conversationOf): the placeholders in
-// their values as its ids, without control characters. p.Headers itself
+// their values as its ids, without control characters, and without the
+// client diagnostics catalog.PrivateClientHeader names. p.Headers itself
 // when the model has none and no value has one.
 func (p Provider) SentHeaders(ctx context.Context) map[string]string {
-	return expandHeaders(p.headersFor(p.modelOf(ctx)), func() Conversation { return conversationOf(ctx) })
+	return withoutPrivate(expandHeaders(p.headersFor(p.modelOf(ctx)), func() Conversation { return conversationOf(ctx) }))
+}
+
+// withoutPrivate is h without the headers catalog.PrivateClientHeader
+// names, which can carry the user's repository: every request that sends a
+// provider's headers (a turn, a balance, a model list, a quota) leaves them
+// out. h itself when it has none.
+func withoutPrivate(h map[string]string) map[string]string {
+	for k := range h {
+		if catalog.PrivateClientHeader(k) {
+			out := maps.Clone(h)
+			maps.DeleteFunc(out, func(k, _ string) bool { return catalog.PrivateClientHeader(k) })
+			return out
+		}
+	}
+	return h
 }
 
 // expandHeaders is h with the placeholders in its values as the ids of
