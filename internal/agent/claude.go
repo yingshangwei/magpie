@@ -1082,7 +1082,16 @@ func claudeIn(at place) *Agent {
 		ownOption := func() bool {
 			return env(claudeCustomOptionEnv) != "" || at.spell == nil && claudeShellEnv(claudeCustomOptionEnv) != ""
 		}
-		replace := provider.OwnModelsHidden("claude") || claudeNarrowed() && !ownOption()
+		// the simple picker (claudeMinimalModelPicker, claude_picker.go)
+		// names each model alone, with a stable vN only where sources share
+		// a name, and replaces the built-in lineup as a narrowed list does,
+		// so no route id shows beside its rows and a tier's model keeps its
+		// row
+		labels, minimal, err := claudePickerLabels()
+		if err != nil {
+			return err
+		}
+		replace := minimal || provider.OwnModelsHidden("claude") || claudeNarrowed() && !ownOption()
 		var onTier []string
 		for _, t := range claudeTiers {
 			if replace {
@@ -1099,7 +1108,6 @@ func claudeIn(at place) *Agent {
 		// picker took the name alone, so none of the setting's three ways
 		// changed /model (love1sbug on X). A description that would say the
 		// provider the label already says is left "via magpie".
-		labels := listLabels("claude")
 		rows := []any{}
 		for _, o := range viaMagpieShared("claude", "") {
 			if slices.ContainsFunc(onTier, func(v string) bool { return claudeSameModel(v, o.Value) }) {
@@ -1117,6 +1125,9 @@ func claudeIn(at place) *Agent {
 				case o.Group != "" && o.Group != RoutingGroups && by != o.Group && !strings.HasSuffix(label, " · "+o.Group):
 					note = o.Group + " · " + note
 				}
+			}
+			if minimal {
+				note = claudePickerDescription(o)
 			}
 			rows = append(rows, map[string]any{"model": spell(mark1M(o.Value)), "label": label, "description": note})
 		}

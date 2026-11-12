@@ -353,6 +353,8 @@ func Merge(body []byte, cur settings.Settings, web bool) (settings.Settings, err
 	in.ClientAgents = cur.ClientAgents
 	// how agents' lists name models, set on its own for the agents to be told
 	in.PlainNames, in.PlainOwnNames = cur.PlainNames, cur.PlainOwnNames
+	// and Claude Code's simple picker, set by magpie model claude-picker
+	in.ClaudeMinimalModelPicker = cur.ClaudeMinimalModelPicker
 	in.AgentSuffix = cur.AgentSuffix   // and each agent's own (agent-suffix)
 	in.BareModelIDs = cur.BareModelIDs // set on its own (bare-ids)
 	in.BusyLoad = cur.BusyLoad         // and so is this (busy-load)

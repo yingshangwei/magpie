@@ -821,6 +821,10 @@ type Settings struct {
 	// PlainNames and PlainOwnNames for that agent alone (KillTry27355 on
 	// X). An agent it doesn't name follows those two (provider.LabelsFor).
 	AgentSuffix map[string]string `json:"agentSuffix,omitempty"`
+	// ClaudeMinimalModelPicker leaves Claude Code's model list with names
+	// alone and no source/account descriptions. Names shared by different
+	// sources get stable vN suffixes, kept by the agent's picker writer.
+	ClaudeMinimalModelPicker bool `json:"claudeMinimalModelPicker,omitempty"`
 	// BareModelIDs has the gateway's /v1/models list each model by its id
 	// without the provider as well ("gpt-5.6-sol" beside
 	// "codex/gpt-5.6-sol"), for clients moved from another proxy that ask

@@ -11,6 +11,7 @@ import (
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // love1sbug on X: switching Names in agents' lists between Off, Not on
@@ -115,10 +116,17 @@ func TestClaudePickerSubscriptionSaysItsProvider(t *testing.T) {
 	}
 	catalog.Changed = SyncCatalog
 	t.Cleanup(func() { catalog.Changed = nil })
-	for _, c := range []struct{ mode, label, note string }{
-		{provider.SuffixOn, "GPT-5.5 · Codex", "me@example.com · via magpie"},
-		{provider.SuffixOff, "GPT-5.5", "Codex · me@example.com · via magpie"},
+	for _, c := range []struct {
+		mode, label, note string
+		minimal           bool
+	}{
+		{provider.SuffixOn, "GPT-5.5 · Codex", "me@example.com · via magpie", false},
+		{provider.SuffixOff, "GPT-5.5", "Codex · me@example.com · via magpie", false},
+		{provider.SuffixOn, "GPT-5.5", claudePickerBlankDescription, true},
 	} {
+		if err := edit.SetJSON(settings.Path(), edit.KV{Path: "claudeMinimalModelPicker", Value: c.minimal}); err != nil {
+			t.Fatal(err)
+		}
 		if err := provider.SetSuffixMode(c.mode); err != nil {
 			t.Fatal(err)
 		}

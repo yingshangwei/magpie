@@ -103,6 +103,10 @@ const modelUsage = `usage:
                                                  own, a name you gave a model just as you wrote it, "Opus 5.5",
                                                  the others as on; off, "Sol" alone — but two a list would name
                                                  the same keep it
+  magpie model claude-picker [simple|default]    Claude Code's model list: simple shows names alone, with
+                                                 stable vN source markers only for names shared by sources;
+                                                 source descriptions for relayed models, no accounts.
+                                                 Native Claude, GPT and Gemini stay plain. Default uses suffix.
   magpie model compact [on|off|<size>]           whether Codex, Claude Code and Grok Build compact a long
                                                  conversation at 272K: on, as by default, for a model of a
                                                  longer window (in Claude Code, a Claude model runs to its
@@ -163,6 +167,8 @@ func modelCmd(args []string) error {
 		return modelWires()
 	case "suffix", "suffixes":
 		return modelSuffix(args[1:])
+	case "claude-picker":
+		return modelClaudePicker(args[1:])
 	case "compact", "full-context":
 		return modelCompact(args[1:])
 	case "window", "agent-context":
@@ -721,6 +727,34 @@ func modelPrices() error {
 			fmt.Println(faint.Render(fmt.Sprintf("  · over %s input tokens $%.4g/$%.4g in/out · cache %s/%s", tokenSize(t.Above), t.Input, t.Output, money(t.CacheRead), money(t.CacheWrite))))
 		}
 	}
+	return nil
+}
+
+// modelClaudePicker says whether Claude Code's /model list is the simple
+// one (names alone, stable vN source markers, claude_picker.go) or the
+// default, or sets it.
+func modelClaudePicker(args []string) error {
+	s, err := settings.LoadChecked()
+	if err != nil {
+		return err
+	}
+	if len(args) == 0 {
+		if s.ClaudeMinimalModelPicker {
+			fmt.Println("simple")
+		} else {
+			fmt.Println("default")
+		}
+		return nil
+	}
+	if len(args) != 1 || args[0] != "simple" && args[0] != "default" {
+		return fmt.Errorf("usage: magpie model claude-picker [simple|default]")
+	}
+	s.ClaudeMinimalModelPicker = args[0] == "simple"
+	if err := settings.Save(s); err != nil {
+		return err
+	}
+	catalog.Touched()
+	fmt.Println(green.Render("✓"), "Claude Code model picker:", args[0])
 	return nil
 }
 
