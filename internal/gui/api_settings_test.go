@@ -31,6 +31,20 @@ func TestSettingsSearchProviderOff(t *testing.T) {
 	}
 }
 
+func TestSettingsPageKeepsClaudeMinimalPicker(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	s := settings.Load()
+	s.ClaudeMinimalModelPicker = true
+	if err := settings.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	Handler(nil, nil).ServeHTTP(rec, httptest.NewRequest("POST", "/api/settings", strings.NewReader(`{"theme":"dark"}`)))
+	if rec.Code != http.StatusOK || !settings.Load().ClaudeMinimalModelPicker {
+		t.Fatalf("Settings page reset the CLI's picker choice: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // The Settings page sends only its own choices. What the settings keep per
 // model — every name, level, price and image answer the user gave of a model
 // on a page of its own — is set elsewhere, so a save from this page has to
