@@ -1,0 +1,31 @@
+name: Multi-lane skill
+
+on:
+  push:
+    paths:
+      - skills/multi-lane/**
+      - .github/workflows/multi-lane.yml
+  pull_request:
+    paths:
+      - skills/multi-lane/**
+      - .github/workflows/multi-lane.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python: ["3.9", "3.13"]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -B -m unittest discover -s skills/multi-lane/tests -v

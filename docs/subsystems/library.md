@@ -12,6 +12,13 @@ and billion-context's plugin, which folds a long session's older turns into
 summaries the model can open again, and lists, switches and copies each
 Pi's extensions and packages.
 
+The repository also supplies the [multi-lane skill](../multi-lane.md) in
+[`skills/multi-lane`](../../skills/multi-lane). The existing skill installer
+distributes its workflow and Python executor as one folder. Its machine
+connection configuration, credentials, named-agent profiles and run state
+live outside that folder and are not part of a Library skill export.
+Installing the skill does not configure a gateway or start an agent.
+
 ## Responsibilities and sources of truth
 
 | Part | Responsibility | Source |
