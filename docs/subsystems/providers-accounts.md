@@ -348,6 +348,31 @@ the price is the own id's first (`ListPrice`). `TestModelIDListedAndAskedForByOw
 `TestModelIDLatestWins`, `TestModelIDMovesTheUsersRefs`,
 `TestLocalModelIDOnEveryRoute`.
 
+## Client diagnostic headers
+
+Claude Code can send an optional `x-claude-code-wiggly-dove` diagnostic
+header, which can contain the repository's host and path. The gateway
+copies Claude Code's own `x-claude-code-*` headers to a relay that serves
+only Claude Code, and a provider may list headers to pass on
+(`PassHeaders`), so `Sign` removes this one after it puts those in and
+before an account signs or a key is added: every case variant and every
+value. A provider's own headers leave it out wherever they are sent
+(`SentHeaders`: requests, balance reads, balance probes, quotas, images,
+a remote magpie's lists), and so does `catalog.PutUserHeader`, so a
+header the user typed can't put it back, in model discovery either. The
+gateway's Codex header copies (`copyHeaders`) can bypass `Sign` and apply
+the same predicate (`catalog.PrivateClientHeader`). Other headers keep
+their existing handling; a refusal never causes a retry with the removed
+header restored.
+
+This covers Magpie-built requests, not metadata generated afterward by an
+independent plugin or by the official CLI inside its own TLS connection.
+Offline fixtures check signing order, `PassHeaders`, authentication retry,
+model discovery and balance reads (`TestClientRepositoryMetadata*`,
+`TestClaudePrivacyRelayHeaders`, `TestClaudePrivacyCopiedHeaders`); real
+upstream compatibility is unverified. See
+[Claude privacy boundaries](../claude-privacy.md).
+
 ## Constraints and failure behavior
 
 An allowance deliberately not requested (a saved Claude account outside

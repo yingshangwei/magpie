@@ -222,6 +222,15 @@ func (p Provider) Sign(ctx context.Context, req *http.Request, proto Protocol, b
 	// the agent's own headers the provider lists (PassHeaders), before an
 	// account's signing, which has the last word on its own
 	passed := p.passClientHeaders(ctx, req.Header)
+	// client diagnostics that can name the user's repository go no
+	// further, whether copied from the agent's request or listed to pass,
+	// before an account signs the headers; the user's own go through
+	// SentHeaders and PutUserHeader, which leave them out too
+	for k := range req.Header {
+		if catalog.PrivateClientHeader(k) {
+			delete(req.Header, k)
+		}
+	}
 	if p.Account != nil && p.Account.sign != nil {
 		return p.Account.sign(ctx, req, body)
 	}

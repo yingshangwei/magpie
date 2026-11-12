@@ -608,24 +608,31 @@ does not call), and only Anthropic decides whether a request spends it
 (X, Shinji_Zl). Tried against fakes only; the owner's account has extra
 usage off.
 
-A turn's run (`claudeRunEnv`) is not given
-`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, which the one-off runs above
-keep (`cleanClaudeEnv`). With it, or `DISABLE_TELEMETRY` or
-`DO_NOT_TRACK`, Claude Code 2.1.316 reads none of its feature flags, and
-one of them (`tengu_curious_tower`) is Message Threads: a turn sends only
-what came after the last reply. Without it every turn sent the whole
+This fork keeps a turn's run as quiet as the one-off runs above
+(`forkBridgeTelemetryOff` in
+[`claude_subscription.go`](../../internal/gateway/claude_subscription.go),
+the user's choice on 2026-11-12). Upstream's `claudeRunEnv` (ee818e8bc)
+gives a turn's run none of `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`,
+`DISABLE_TELEMETRY` and `DO_NOT_TRACK`, so that Claude Code 2.1.316 reads
+its feature flags, one of which (`tengu_curious_tower`) is Message
+Threads: a turn sends only what came after the last reply. Here a turn's
+run is given all three, set to 1 whatever the user set in magpie's
+environment or their Claude Code's `settings.json` env
+(`cleanClaudeEnvTTL`), so Claude Code sends no telemetry and reads none of
+its flags. The price is Message Threads: every turn sends the whole
 history again, every image in it (#5963, nylesssssssss: with a ~3 MB PNG,
 672 KB on each of four turns; 737, 6, 3 and 3 KB with the flags read, on
-a real Team account behind a counting proxy). Nothing forces threads:
-`CLAUDE_CODE_TETHER_LIVE`, which turns them on whatever the account's
-flag says, is never set, and an account Anthropic hasn't given threads
-sends whole, as its own `claude` does. Updates and error reports stay off
-(`DISABLE_AUTOUPDATER`, `DISABLE_ERROR_REPORTING`); Claude Code's own
-telemetry goes as a plain `claude`'s does, unless the user turned it off:
-a quiet variable set in magpie's environment or in their Claude Code's
-`settings.json` env is given to the run as they set it, and the run then
-reads no flags. An interactive run sends Claude Code's quota request as it
-starts, right before the turn's own. `TestClaudeRunReadsItsFlags` holds it.
+a real Team account behind a counting proxy). With nonessential traffic
+off, an interactive run also sends no quota request as it starts. Updates
+and error reports stay off (`DISABLE_AUTOUPDATER`,
+`DISABLE_ERROR_REPORTING`), and `CLAUDE_CODE_TETHER_LIVE`, which turns
+threads on whatever the account's flag says, is never set. Setting
+`forkBridgeTelemetryOff` to false gives back upstream's behaviour:
+`claudeRunEnv` takes the quiet variables out again and passes on those the
+user set, and `TestClaudeRunStaysQuiet` and
+`TestClaudePrivacyRunEnvironment` then need upstream's expectations
+(upstream's test is `TestClaudeRunReadsItsFlags`). `TestClaudeRunStaysQuiet`
+holds the fork's behaviour.
 
 The helper still takes a typed `/usage`, and nothing of magpie's sends it
 now: it is told `{"type":"command","command":"/usage"}`, types it, waits for the
@@ -805,6 +812,49 @@ program alone, never its arguments. The helper doesn't end early on 0
 bytes: a Keychain window may still be answered, and Claude Code bounds its
 own network waits (about 30s) before it draws.
 `TestShimSaysWhatAnUndrawnClaudeWaitsOn` holds it.
+
+## Process environment
+
+`cleanClaudeEnvTTL` in [`claude_subscription.go`](../../internal/gateway/claude_subscription.go)
+prepares every run's environment, one-off or a turn's. It removes
+inherited `GIT_*`, `OTEL_*`, `ANTHROPIC_CUSTOM_HEADERS`,
+`CLAUDE_CODE_ENABLE_TELEMETRY` and
+`CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL`, whatever their case, and
+the settings it fixes itself, so an inherited case variant or second value
+never stands beside them. Git reads no system or global config
+(`GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL` the null device): Claude
+Code reads `user.email` and `user.name` from it, and an include there can
+name a repository. A turn's run works in the caller's own folder
+(`clientWorkDir`, [below](#the-runs-working-folder-clientworkdir)), and
+that repository's own config, its remote included, stays readable to
+Claude Code; `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1` keeps only its status
+out of the prompt. Parent discovery is not limited.
+
+Error reports, automatic updates, automatic memory and the official
+marketplace's autoinstall are off for every run
+(`DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER`,
+`CLAUDE_CODE_DISABLE_AUTO_MEMORY`,
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`). So are
+telemetry, tracking and nonessential traffic (`DISABLE_TELEMETRY`,
+`DO_NOT_TRACK`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`), whatever the
+user set: for the one-off runs (the model test, the warm-up; `/usage`
+gives back nonessential traffic, unless the user set it, to fetch the
+usage) and, in this fork, for a turn's run too (`forkBridgeTelemetryOff`),
+which therefore goes without Message Threads
+([interactive mode](#claude-codes-interactive-mode-claudeprintmode)).
+Account directories, PATH, proxy and CA settings are kept.
+
+WSL receives these settings through `claudeEnvVars`; Git's empty config
+is `/dev/null` inside Linux. This has not been checked in a running
+Windows/WSL installation. These controls reduce what the official CLI is
+given, without inspecting the headers it generates inside TLS. The
+gateway's own outbound requests leave out Claude Code's
+`x-claude-code-wiggly-dove` header
+([client diagnostic headers](providers-accounts.md#client-diagnostic-headers)).
+[Claude privacy boundaries](../claude-privacy.md) describe what is and is
+not covered. `TestClaudePrivacyEnvironment`,
+`TestClaudePrivacyRunEnvironment`, `TestClaudePrivacyGitSources`,
+`TestClaudePrivacyWSLEnvironment`.
 
 ## Why turns go on in one run
 

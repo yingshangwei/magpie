@@ -2221,7 +2221,9 @@ func copyHeaders(dst, src http.Header) {
 	for k, vs := range src {
 		// what a proxy in front of magpie says of the caller isn't the
 		// ChatGPT backend's (proxyIdentity)
-		if !hopHeader(k) && !proxyIdentity(k) && http.CanonicalHeaderKey(k) != "Host" && http.CanonicalHeaderKey(k) != AccountHeader {
+		// nor client diagnostics that can name the user's repository,
+		// which this copy would carry past Sign's filter
+		if !hopHeader(k) && !proxyIdentity(k) && http.CanonicalHeaderKey(k) != "Host" && http.CanonicalHeaderKey(k) != AccountHeader && !catalog.PrivateClientHeader(k) {
 			dst[k] = vs
 		}
 	}

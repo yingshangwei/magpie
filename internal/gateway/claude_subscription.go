@@ -782,7 +782,9 @@ func (c claudeCLI) asRoot(env []string) []string {
 // one in WSL is handed (wslrun's Env).
 var claudeEnvVars = []string{"ENABLE_CLAUDEAI_MCP_SERVERS", "DISABLE_AUTO_COMPACT", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
 	"DISABLE_TELEMETRY", "DO_NOT_TRACK", "DISABLE_ERROR_REPORTING", "DISABLE_AUTOUPDATER", "ANTHROPIC_BETAS",
-	"CLAUDE_CODE_EXTRA_BODY", "DISABLE_PROMPT_CACHING"}
+	"CLAUDE_CODE_EXTRA_BODY", "DISABLE_PROMPT_CACHING",
+	"CLAUDE_CODE_DISABLE_AUTO_MEMORY", "CLAUDE_CODE_PROMPT_CACHE_TTL", "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+	"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL"}
 
 // env is env for a run in config directory configDir ("" for the account
 // Claude Code is signed in to): for one in WSL, what of it goes in.
@@ -790,6 +792,14 @@ func (c claudeCLI) env(env []string, configDir string) []string {
 	env = inClaudeDir(env, configDir)
 	if c.wsl == nil {
 		return env
+	}
+	// Git runs inside Linux; Windows' NUL is not its empty config file.
+	for i, e := range env {
+		if strings.HasPrefix(e, "GIT_CONFIG_GLOBAL=") {
+			env = slices.Clone(env)
+			env[i] = "GIT_CONFIG_GLOBAL=/dev/null"
+			break
+		}
 	}
 	names := claudeEnvVars
 	if configDir != "" {
@@ -3838,11 +3848,26 @@ func cleanClaudeEnvTTL(env []string, ttl string) []string {
 		"CLAUDECODE": true, "CLAUDE_CODE_ENTRYPOINT": true, "CLAUDE_CODE_SSE_PORT": true,
 		"CLAUDE_CODE_OAUTH_TOKEN": true, "CLAUDE_CODE_PROMPT_CACHE_TTL": true, "FORCE_PROMPT_CACHING_5M": true,
 		"CLAUDE_CODE_EXTRA_BODY": true, "ANTHROPIC_BETAS": true,
+		// what would send the run's metadata elsewhere: headers of the
+		// user's own on every request, and OTel export (OTEL_*, below)
+		"ANTHROPIC_CUSTOM_HEADERS": true, "CLAUDE_CODE_ENABLE_TELEMETRY": true,
+		"CLAUDE_CODE_ENABLE_FEEDBACK_SURVEY_FOR_OTEL": true,
+		// set below, so an inherited one in another case or a second value
+		// doesn't stand beside them
+		"ENABLE_CLAUDEAI_MCP_SERVERS": true, "DISABLE_AUTO_COMPACT": true,
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": true, "CLAUDE_CODE_DISABLE_AUTO_MEMORY": true,
+		"CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": true, "DISABLE_TELEMETRY": true, "DO_NOT_TRACK": true,
+		"DISABLE_ERROR_REPORTING": true, "DISABLE_AUTOUPDATER": true,
+		"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": true,
 	}
-	out := make([]string, 0, len(env)+3)
+	out := make([]string, 0, len(env)+12)
 	for _, e := range env {
 		k, _, _ := strings.Cut(e, "=")
-		if !blocked[k] {
+		k = strings.ToUpper(k)
+		// Git's environment can name the user's repository and its config,
+		// whatever folder the run is in, and inherited OTel would export
+		// the run
+		if !blocked[k] && !strings.HasPrefix(k, "GIT_") && !strings.HasPrefix(k, "OTEL_") {
 			out = append(out, e)
 		}
 	}
@@ -3856,6 +3881,15 @@ func cleanClaudeEnvTTL(env []string, ttl string) []string {
 		// model that itself, and a status changing with each commit undoes
 		// the cache from there on
 		"CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1",
+		// telemetry, tracking, error reports, updates and the official
+		// marketplace's autoinstall are off for every run, a turn's too in
+		// this fork (forkBridgeTelemetryOff)
+		"DISABLE_TELEMETRY=1", "DO_NOT_TRACK=1", "DISABLE_ERROR_REPORTING=1", "DISABLE_AUTOUPDATER=1",
+		"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
+		// no system or global Git config: Claude Code reads user.email and
+		// user.name from it, and an include there can name a repository.
+		// The repository a run works in (clientWorkDir) is still its own
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull,
 		// the cache kept as the user picked (claudeRunTTL), stated so that
 		// the marks magpie puts in the first message (renderClaudePrompt,
 		// Request.cacheTTL) are the same: Anthropic refuses a 1h mark after
@@ -3868,6 +3902,16 @@ func cleanClaudeEnvTTL(env []string, ttl string) []string {
 // DISABLE_TELEMETRY or DO_NOT_TRACK; 2.1.316's privacy level, "default" only
 // with none) it reads none, and every flag is its default.
 var claudeQuietVars = []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY", "DO_NOT_TRACK"}
+
+// forkBridgeTelemetryOff is this fork's deviation from upstream (ee818e8bc),
+// the user's choice on 2026-11-12: a turn's run is as quiet as the one-off
+// runs, CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, DISABLE_TELEMETRY and
+// DO_NOT_TRACK set whatever the user set (cleanClaudeEnvTTL), so its Claude
+// Code sends no telemetry and reads no feature flags. The price is Message
+// Threads: every turn sends the whole history again, every image in it
+// (#5963: about 670KB a turn with a 3MB image, about 3KB with threads).
+// false gives a turn's run upstream's claudeRunEnv below.
+const forkBridgeTelemetryOff = true
 
 // claudeRunEnv is the environment a bridge's run (a caller's turns) starts
 // Claude Code in: cleanClaudeEnvTTL's, but with Claude Code's network as a
@@ -3889,6 +3933,9 @@ var claudeQuietVars = []string{"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISA
 // interactive run sends that request too, right before the turn's own,
 // which opens the five-hour window anyway.
 func claudeRunEnv(env []string, ttl string) []string {
+	if forkBridgeTelemetryOff {
+		return cleanClaudeEnvTTL(env, ttl)
+	}
 	out := slices.DeleteFunc(cleanClaudeEnvTTL(env, ttl), func(e string) bool {
 		k, _, _ := strings.Cut(e, "=")
 		return slices.Contains(claudeQuietVars, k)
@@ -3907,7 +3954,7 @@ func claudeRunEnv(env []string, ttl string) []string {
 			out = append(out, k+"="+v)
 		}
 	}
-	return append(out, "DISABLE_AUTOUPDATER=1", "DISABLE_ERROR_REPORTING=1")
+	return out
 }
 
 type lockedWriter struct{ run *subscriptionRun }
