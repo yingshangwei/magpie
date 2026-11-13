@@ -182,6 +182,30 @@ func minus(a, b []string) []string {
 	return out
 }
 
+// A per-account effort the Settings page never sends is carried whole
+// through the save, like the other model-row settings it doesn't render.
+func TestMergeKeepsAccountEfforts(t *testing.T) {
+	home(t)
+	cur := settings.Defaults()
+	cur.AccountEfforts = map[string]string{"oa/key-1": "xhigh", "an/acct-2": "max"}
+	if err := settings.Save(cur); err != nil {
+		t.Fatal(err)
+	}
+	in, err := Merge([]byte(`{"theme":"dark"}`), settings.Load(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(in.AccountEfforts, cur.AccountEfforts) {
+		t.Fatalf("account efforts after a theme save: %v", in.AccountEfforts)
+	}
+	if err := settings.Save(in); err != nil {
+		t.Fatal(err)
+	}
+	if got := settings.Load().AccountEfforts; !reflect.DeepEqual(got, cur.AccountEfforts) {
+		t.Fatalf("saved account efforts = %v, want %v", got, cur.AccountEfforts)
+	}
+}
+
 // Setting one key through Body leaves every other the user set as it
 // is, and a key the save keeps when it isn't sent is set even to its
 // zero value.
