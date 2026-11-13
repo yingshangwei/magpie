@@ -54,7 +54,7 @@ func advisorTools(body []byte, p provider.Provider, upstream string, wires map[s
 		}
 		json.Unmarshal(t["model"], &model)
 		name, ok := advisorModel(p, model, wires)
-		if ok && allowed != nil && !allowed(advisorKeyModel(model)) {
+		if ok && allowed != nil && !allowed(advisorKeyModel(p, model)) {
 			ok = false
 		}
 		if !claude || !ok {
@@ -92,8 +92,11 @@ func advisorTools(body []byte, p provider.Provider, upstream string, wires map[s
 // advisorKeyModel is the model id a key's models are checked against for
 // an advisor named model: magpie's model id when it names one, else the
 // bare id as it was sent.
-func advisorKeyModel(model string) string {
+func advisorKeyModel(p provider.Provider, model string) string {
 	model = strings.TrimSuffix(strings.TrimSpace(model), "[1m]")
+	if own, ok := strings.CutPrefix(model, p.ID+"/"); ok {
+		return own
+	}
 	if _, m, ok := provider.Resolve(model); ok && !provider.IsGroupRef(model) {
 		return m
 	}
@@ -107,6 +110,12 @@ func advisorModel(p provider.Provider, model string, wires map[string]string) (s
 	model = strings.TrimSuffix(strings.TrimSpace(model), "[1m]")
 	if model == "" {
 		return "", false
+	}
+	// p's own model by p's id, as Claude Code names it on magpie
+	// (claude/claude-opus-5-5), whether or not Resolve finds p
+	if own, ok := strings.CutPrefix(model, p.ID+"/"); ok {
+		name := provider.UpstreamNameIn(wires, p.ID, own)
+		return name, anthropicModel.MatchString(name)
 	}
 	if q, m, ok := provider.Resolve(model); ok && !provider.IsGroupRef(model) {
 		if q.ID != p.ID {

@@ -1598,3 +1598,12 @@ func TestReadPastEAGAIN(t *testing.T) {
 		t.Fatalf("screen %q, want what was drawn after the EAGAIN", got)
 	}
 }
+
+// The bridge's -p arguments name the client's advisor (--advisor), which
+// the interactive mode takes as -p does: it goes on with its model.
+func TestInteractiveArgsKeepTheAdvisor(t *testing.T) {
+	got := strings.Join(interactiveArgs([]string{"-p", "--model", "claude-sonnet-5-5", "--advisor", "claude-opus-5-5", "--output-format", "stream-json"}), " ")
+	if !strings.Contains(got, "--model claude-sonnet-5-5 --advisor claude-opus-5-5 ") || strings.Contains(got, "stream-json") {
+		t.Fatalf("interactive arguments: %s", got)
+	}
+}

@@ -144,6 +144,15 @@ func parseAnthropicRequest(body []byte, clientMarks bool) (*Request, error) {
 	return readAnthropic(body, clientMarks, false)
 }
 
+// parseAnthropicForBridge is parseAnthropicRequest for the Claude
+// subscription bridge: the advisor the client offered stays, its model in
+// Request.advisor and its instructions in the conversation, for the run's
+// own --advisor. advisorTools has already mapped its model to the
+// provider's, or left it out.
+func parseAnthropicForBridge(body []byte, clientMarks bool) (*Request, error) {
+	return readAnthropicAs(body, clientMarks, false, false, true)
+}
+
 // readAnthropic is parseAnthropicRequest; for facts (readFacts) it leaves
 // out what they never read, as readChat does: the assistant's blocks, the
 // tools' outputs, and the copies of raw values a parse kept would need.
@@ -156,6 +165,12 @@ func readAnthropic(body []byte, clientMarks, facts bool) (*Request, error) {
 // conversation are read as the model's tool calls and their results, and
 // its instructions stay as Claude Code wrote them.
 func readAdvised(body []byte, clientMarks, facts, advised bool) (*Request, error) {
+	return readAnthropicAs(body, clientMarks, facts, advised, false)
+}
+
+// readAnthropicAs reads either a gateway-run advisor (advised) or the
+// native advisor kept for a Claude subscription (keepAdvisor).
+func readAnthropicAs(body []byte, clientMarks, facts, advised, keepAdvisor bool) (*Request, error) {
 	decode := decodeJSON
 	if facts {
 		decode = decodeJSONView
@@ -286,6 +301,10 @@ func readAdvised(body []byte, clientMarks, facts, advised bool) (*Request, error
 					// run by magpie: offered as a tool of the model's
 					// own when the reply is asked (advisor_serve.go)
 					r.Advisor = cmp.Or(r.Advisor, t.Model)
+					continue
+				}
+				if keepAdvisor && t.Name == "advisor" && t.Model != "" {
+					r.advisor = t.Model
 					continue
 				}
 				// Claude Code's advisor: its instructions, which would
@@ -1491,6 +1510,9 @@ type aUsage struct {
 	// reads from Claude Code. A vendor that leaves it out is told by its
 	// stream (hidesReasoning, #4545)
 	OutputTokensDetails *aOutputDetails `json:"output_tokens_details,omitempty"`
+	// Iterations is Anthropic's per-model usage of the request, an
+	// advisor's sub-calls among them, kept as it says them
+	Iterations *[]json.RawMessage `json:"iterations,omitempty"`
 }
 
 type aCacheCreation struct {
@@ -1513,6 +1535,7 @@ func (u aUsage) usage() Usage {
 	if d := u.OutputTokensDetails; d != nil {
 		out.Reasoning = d.ThinkingTokens
 	}
+	out.Iterations = u.Iterations
 	return out
 }
 
@@ -1528,6 +1551,7 @@ func (u Usage) anthropic() aUsage {
 	if u.Reasoning > 0 {
 		out.OutputTokensDetails = &aOutputDetails{ThinkingTokens: u.Reasoning}
 	}
+	out.Iterations = u.Iterations
 	return out
 }
 
@@ -1786,9 +1810,10 @@ func (e *anthropicEncoder) event(ev Event) {
 			e.thinking()
 			e.delta(map[string]any{"type": "signature_delta", "signature": ev.Text})
 		}
-	case KSealed:
-		if ev.Name == sealAnthropic {
-			// a redacted_thinking block, whole as Anthropic wrote it
+	case KSealed, KAdvisor:
+		if ev.Kind == KAdvisor || ev.Name == sealAnthropic {
+			// a redacted_thinking or advisor block, whole as Anthropic
+			// wrote it
 			e.close()
 			e.fresh = false
 			e.w.event("content_block_start", map[string]any{"type": "content_block_start", "index": e.index, "content_block": json.RawMessage(ev.Text)})
@@ -1892,6 +1917,8 @@ func renderAnthropic(res Result, model string) []byte {
 	var cite citer
 	for _, p := range res.Parts {
 		switch p.Kind {
+		case Advisor:
+			content = append(content, p.AdvisorRaw)
 		case Text:
 			if p.Text == "" && p.Signature != "" {
 				continue // only Gemini's signature, which is Gemini's
