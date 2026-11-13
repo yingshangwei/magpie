@@ -95,8 +95,8 @@ func (h *heatDays) add(r *Row, since time.Time, loc *time.Location) {
 		x = &Day{Date: d}
 		h.at[d] = x
 	}
-	if !r.HandedOn {
-		x.Calls++ // a request, not each try at it
+	if r.CountsRequest() {
+		x.Calls++ // a request, not each try at it nor an advisor's call
 	}
 	x.Tokens += r.Input + r.Output + r.CacheRead + r.CacheWrite
 	switch {

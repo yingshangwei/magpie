@@ -4373,7 +4373,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				return
 			}
 			u := call.Usage.billed()
-			if u.Input+u.Output+u.CacheRead+u.CacheWrite == 0 {
+			if u.Input+u.Output+u.CacheRead+u.CacheWrite == 0 && len(advisorRecords(usage.Record{}, u)) == 0 {
 				return
 			}
 			rec := usage.Record{RouteID: tr.ID, Time: began, Agent: call.Agent, Via: call.Via, Provider: call.Provider, Host: where, Model: c.model,
@@ -4390,7 +4390,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				failed.wholeIn, failed.wholeOut = call.wholeIn, hw.errBody()
 			}
 			withBodies(&rec, failed)
-			appendUsage(r, rec)
+			appendUsage(r, rec, u)
 		}
 		sentMs, ownMs, retriedMs, queuedMs = 0, 0, 0, 0
 		if at := wrote.Load(); at > 0 && call.TTFT > 0 {
@@ -4637,7 +4637,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 					refusal.wholeIn, refusal.wholeOut = call.wholeIn, hw.errBody()
 				}
 				withBodies(&rec, refusal)
-				appendUsage(r, rec)
+				appendUsage(r, rec, call.Usage)
 			}
 			failedRow = nil // its row is written
 			continue
@@ -4682,7 +4682,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 					refusal.wholeIn, refusal.wholeOut = call.wholeIn, hw.errBody()
 				}
 				withBodies(&rec, refusal)
-				appendUsage(r, rec)
+				appendUsage(r, rec, call.Usage)
 			}
 			failedRow = nil // its row is written
 			continue
@@ -5564,7 +5564,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		}
 		failedWith(&rec, call.Status, call.Error, call.Usage.ErrType)
 		withBodies(&rec, &call)
-		appendUsage(r, rec)
+		appendUsage(r, rec, call.Usage)
 		if call.Status < 400 {
 			// what its model searched with its provider's own tool
 			logNativeSearches(r.Context(), call.Usage.searches, start, call.Agent, call.Provider, where, model)

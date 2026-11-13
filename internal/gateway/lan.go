@@ -862,7 +862,9 @@ func accountOf(p provider.Provider) string {
 	return p.Account.User
 }
 
-func appendUsage(r *http.Request, rec usage.Record) {
+// appendUsage writes rec, and before it a row for each advisor sub-call
+// counts report (advisorRecords), billed with rec's identity.
+func appendUsage(r *http.Request, rec usage.Record, counts ...Usage) {
 	if rec.Session == "" {
 		rec.Session = sessionOf(r.Header)
 	}
@@ -879,6 +881,11 @@ func appendUsage(r *http.Request, rec usage.Record) {
 	if !rec.IsProbe() {
 		// a request an MCP tool call made: its row names the model (mcpUse)
 		mcpUseOf(r.Context()).used(rec.Provider, rec.Model)
+	}
+	for _, u := range counts {
+		for _, advisor := range advisorRecords(rec, u) {
+			budget.Append(advisor)
+		}
 	}
 	budget.Append(rec)
 }

@@ -230,12 +230,17 @@ type RouteUsage struct {
 	// credits (WorkBuddy's usage.credit, #2512), the Routing page's as
 	// the Usage page's; nil when it said none (jiabubu on Discord)
 	Credits *float64 `json:"credits,omitempty"`
+	// Operation is usage.AdvisorOperation for an advisor's sub-call,
+	// priced at its own model; CacheWrite1h the hour's writes among
+	// CacheWrite, priced at an hour's rate
+	Operation    string `json:"operation,omitempty"`
+	CacheWrite1h int    `json:"cache_write_1h,omitempty"`
 }
 
 // PricingRecord lets the routing view reuse the ledger's effective prices.
 func (u RouteUsage) PricingRecord() usage.Record {
-	return usage.Record{Provider: u.Provider, Model: u.Model, Input: u.Input,
-		Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.Reasoning}
+	return usage.Record{Operation: u.Operation, Provider: u.Provider, Model: u.Model, Input: u.Input,
+		Output: u.Output, CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, CacheWrite1h: u.CacheWrite1h, Reasoning: u.Reasoning}
 }
 
 // GroupRef is the routing group a request asked for.
@@ -1163,17 +1168,25 @@ func swapped(sent, served string) bool { return usage.Swapped(sent, served) }
 // request's metadata. Unknown token counts have no price, including failures.
 // What the reply counted of earlier requests (Deferred) is priced as a tier
 // of its own before the request's, which stays last: the prompt is read
-// from the last (promptCounted), and is the request's own.
+// from the last (promptCounted), and is the request's own. An advisor's
+// sub-calls (advisorRecords) are tiers of their own too, at their models.
 func routeUsage(id, model string, u Usage) []RouteUsage {
 	var out []RouteUsage
 	if d := u.Deferred; d != nil && d.Input+d.Output+d.CacheRead+d.CacheWrite > 0 {
 		out = append(out, RouteUsage{Provider: id, Model: model, Input: d.Input, Output: d.Output,
-			CacheRead: d.CacheRead, CacheWrite: d.CacheWrite, Reasoning: d.Reasoning})
+			CacheRead: d.CacheRead, CacheWrite: d.CacheWrite, CacheWrite1h: d.CacheWrite1h, Reasoning: d.Reasoning})
 	}
-	if u.Input+u.Output == 0 {
+	advisors := advisorRecords(usage.Record{Provider: id}, u)
+	for _, a := range advisors {
+		out = append(out, RouteUsage{Operation: a.Operation, Provider: id, Model: a.Model,
+			Input: a.Input, Output: a.Output, CacheRead: a.CacheRead, CacheWrite: a.CacheWrite, CacheWrite1h: a.CacheWrite1h})
+	}
+	// the request's own stays last, even with no tokens: promptCounted
+	// must never take an advisor's prompt for the client's context
+	if u.Input+u.Output == 0 && len(advisors) == 0 {
 		return out
 	}
 	return append(out, RouteUsage{Provider: id, Model: model, Input: u.Input, Output: u.Output,
-		CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, Reasoning: u.Reasoning,
+		CacheRead: u.CacheRead, CacheWrite: u.CacheWrite, CacheWrite1h: u.CacheWrite1h, Reasoning: u.Reasoning,
 		CacheUnknown: u.cacheNotCounted(), Credits: u.Credits})
 }

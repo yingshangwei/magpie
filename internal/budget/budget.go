@@ -68,7 +68,9 @@ type sums struct {
 }
 
 func (s *sums) add(r usage.Record, cost float64, priced bool) {
-	s.calls++
+	if !r.IsAdvisor() {
+		s.calls++ // a request, its advisor's tokens and cost counted with it
+	}
 	s.input += int64(r.Input)
 	s.output += int64(r.Output)
 	s.cacheRead += int64(r.CacheRead)

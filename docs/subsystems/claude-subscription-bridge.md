@@ -896,8 +896,32 @@ included; a server tool's input deltas never become a client call's
 arguments. A native `pause_turn` goes on inside the same reply while
 Claude Code continues it. `usage.iterations` keeps the model-specific
 advisor counts (`Usage.Iterations`), those of every message of the reply
-in order (`after`); top-level token totals stay the executor's. The
-gateway's usage ledger still prices those executor totals only.
+in order (`after`); top-level token totals stay the executor's.
+
+[`advisorRecords`](../../internal/gateway/advisor_usage.go) writes each
+reported `advisor_message` with a nonempty model and valid token counts as
+a separate usage row, marked `operation: advisor` and `kind: advisor`.
+It shares the executor's route, session and billing account, while keeping
+its own input, output, cache reads and 5-minute/1-hour cache writes.
+Message iterations are already in the executor totals and are not added
+again. Summary, model breakdown, request ledger, CSV and gateway-key
+budgets price these rows at the reported advisor model's effective price.
+A missing price stays unpriced; old executor rows without iterations
+cannot recover the missing advisor usage.
+
+Existing and new advisor rows add tokens and cost but no gateway requests,
+failures, retries, response timings or selected session model. They do
+contribute to the account's quota-window tokens. The executor's response
+id, request bodies and status are not copied onto an advisor. Failed
+attempts keep advisor usage too, even when the executor reported no tokens.
+Routing cost includes advisor usage, while prompt calibration and cache
+affinity keep the executor's own counts.
+`TestAdvisorUsageLedger`, `TestAdvisorUsageOfFailedTry`,
+`TestAdvisorRouteUsageKeepsExecutorPrompt`,
+`TestAdvisorDoesNotEndOrRetryARequest`,
+`TestHistoricalAdvisorRowsStaySubcalls` and
+`TestAdvisorFillsItsWindowWithinItsCall` cover these accounting boundaries.
+
 `TestClaudeSubscriptionForwardsAdvisor` (`-p` and interactive),
 `TestClaudeSubscriptionAdvisorChanges`,
 `TestClaudeSubscriptionAdvisorFixedForTheRun`,
