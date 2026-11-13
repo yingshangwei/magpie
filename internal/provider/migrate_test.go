@@ -214,6 +214,8 @@ func TestMoveToPlugin(t *testing.T) {
 // again, and a failed one waits before magpie tries it by itself again:
 // hours while the built-in serves its accounts, minutes once it is retired.
 func TestMoveCutShort(t *testing.T) {
+	retiredBuiltins["fakeco"] = true
+	t.Cleanup(func() { delete(retiredBuiltins, "fakeco") })
 	bun := testenv.Bun(t)
 	claudeHome(t)
 	t.Setenv("MAGPIE_BUN", bun)
@@ -266,19 +268,26 @@ func TestMoveCutShort(t *testing.T) {
 	if errs := MoveRetiring(ctx); len(errs) != 0 || Moved("fakeco") {
 		t.Fatalf("tried again at once: %v", errs)
 	}
-	// past retiredRetry, still within moveRetry: the built-in serves its
-	// accounts yet, so it waits the hours
+	// A live built-in whose plugin is installed retries through HandOver,
+	// after six hours; MoveRetiring intentionally leaves that built-in alone.
+	retiredBuiltins["fakeco"] = false
 	_ = setMigration("fakeco", func(m *Migration) { m.At = time.Now().Add(-retiredRetry - time.Minute) })
-	if errs := MoveRetiring(ctx); len(errs) != 0 || Moved("fakeco") {
+	if errs := HandOver(ctx, true); len(errs) != 0 || Moved("fakeco") {
 		t.Fatalf("a built-in still serving it tried again within moveRetry: %v", errs)
 	}
+	_ = setMigration("fakeco", func(m *Migration) { m.At = time.Now().Add(-moveRetry - time.Minute) })
+	if errs := HandOver(ctx, true); errs["fakeco"] != nil || !Moved("fakeco") {
+		t.Fatalf("HandOver did not retry the live built-in after moveRetry: %v", errs)
+	}
+	// Reset the failed state to exercise the retired built-in's shorter wait.
+	setFakeLogins(t, fakeLogin("a@fake", "r-a", true, true))
+	_ = setMigration("fakeco", func(m *Migration) { m.State, m.At = MoveFailed, time.Now() })
 	if d := nextRetiringRun(); d != time.Hour {
 		t.Fatalf("the next run with no retired built-in failed: %s, not an hour", d)
 	}
 	// retired, nothing serves its accounts: tried again after retiredRetry,
 	// the run brought forward to it
 	retiredBuiltins["fakeco"] = true
-	t.Cleanup(func() { delete(retiredBuiltins, "fakeco") })
 	_ = setMigration("fakeco", func(m *Migration) { m.At = time.Now() })
 	if d := nextRetiringRun(); d > retiredRetry || d < retiredRetry-time.Minute {
 		t.Fatalf("the next run after a retired built-in's failed move: %s, not %s", d, retiredRetry)

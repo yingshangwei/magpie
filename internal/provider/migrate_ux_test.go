@@ -115,6 +115,8 @@ func TestMoveTidiesItsPlugin(t *testing.T) {
 // plugin's sign-ins, nothing moving or installing it again, and the plugin
 // installed again (or the editor's Move) has it at once, accounts and all.
 func TestNoWayBack(t *testing.T) {
+	retiredBuiltins["fakeco"] = true
+	t.Cleanup(func() { delete(retiredBuiltins, "fakeco") })
 	ctx, abs, installs := fakePlugin(t)
 	retiring = func() []string { return []string{"fakeco"} }
 	t.Cleanup(func() { retiring = MovableIDs })
