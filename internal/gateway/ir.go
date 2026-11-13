@@ -28,6 +28,7 @@ const (
 	ToolResult Kind = "tool_result"
 	Thinking   Kind = "thinking"
 	Search     Kind = "web_search" // a web search run for the model: its query and hits
+	Advisor    Kind = "advisor"    // an Anthropic advisor call or result, kept whole
 )
 
 // Part is one block of a message.
@@ -77,6 +78,8 @@ type Part struct {
 	// sealResponses).
 	Sealed   json.RawMessage
 	SealedBy string
+	// AdvisorRaw is an advisor server block, including opaque encrypted results.
+	AdvisorRaw json.RawMessage
 
 	// web_search: Text is the query
 	Hits []Hit
@@ -189,6 +192,9 @@ type Request struct {
 	// leanPrompt has the Claude bridge give the caller's instructions as
 	// the run's system prompt, in place of Claude Code's (ClaudeLeanPrompt).
 	leanPrompt bool
+	// advisor is the upstream model of the advisor a Claude subscription's
+	// client offered (parseAnthropicForBridge), "" for none.
+	advisor string
 	// appendPrompt: the Claude bridge gives the caller's instructions
 	// after Claude Code's own system prompt (appendsPrompt), set as the
 	// run starts.
@@ -451,6 +457,8 @@ const (
 	// keepaliveGap of nothing else: a reply read in rounds (searchReply)
 	// keeps its client alive with it as a translated stream does (#2316)
 	KAlive
+	// KAdvisor: Text is a complete Anthropic advisor server block.
+	KAdvisor
 )
 
 // Event is one thing a streaming reply said.
@@ -546,6 +554,9 @@ type Usage struct {
 	// credits, nil when it said none: WorkBuddy's usage.credit, the
 	// figure its app shows on each reply as "Credits Consumed" (#2512)
 	Credits *float64 `json:"credits,omitempty"`
+	// Iterations keeps Anthropic's per-model usage, including advisor
+	// sub-calls (usage.iterations), as the reply said it
+	Iterations *[]json.RawMessage `json:"iterations,omitempty"`
 }
 
 // billed is what the request is billed for: its own count, and what it
@@ -578,6 +589,9 @@ func (u Usage) prompt() int {
 }
 
 func (u *Usage) add(v Usage) {
+	if v.Iterations != nil && len(*v.Iterations) > 0 {
+		u.Iterations = v.Iterations
+	}
 	if v.restart {
 		u.Input, u.CacheRead, u.CacheWrite, u.CacheWrite1h = v.Input, v.CacheRead, v.CacheWrite, v.CacheWrite1h
 	}
@@ -785,6 +799,9 @@ func (c *collector) add(ev Event) {
 	case KSearch:
 		c.closeTool()
 		c.res.Parts = append(c.res.Parts, Part{Kind: Search, Text: ev.Text, Hits: ev.Hits})
+	case KAdvisor:
+		c.closeTool()
+		c.res.Parts = append(c.res.Parts, Part{Kind: Advisor, AdvisorRaw: json.RawMessage(ev.Text)})
 	case KImage:
 		c.closeTool()
 		c.res.Parts = append(c.res.Parts, Part{Kind: Image, MediaType: ev.Name, Data: ev.Text})

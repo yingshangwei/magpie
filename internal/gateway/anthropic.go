@@ -103,6 +103,7 @@ type aRequest struct {
 	Tools []struct {
 		Type         string          `json:"type,omitempty"`
 		Name         string          `json:"name"`
+		Model        string          `json:"model,omitempty"`
 		Description  string          `json:"description,omitempty"`
 		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 		CacheControl json.RawMessage `json:"cache_control,omitempty"`
@@ -142,10 +143,25 @@ func parseAnthropicRequest(body []byte, clientMarks bool) (*Request, error) {
 	return readAnthropic(body, clientMarks, false)
 }
 
+// parseAnthropicForBridge is parseAnthropicRequest for the Claude
+// subscription bridge: the advisor the client offered stays, its model in
+// Request.advisor and its instructions in the conversation, for the run's
+// own --advisor. advisorTools has already mapped its model to the
+// provider's, or left it out.
+func parseAnthropicForBridge(body []byte, clientMarks bool) (*Request, error) {
+	return readAnthropicAs(body, clientMarks, false, true)
+}
+
 // readAnthropic is parseAnthropicRequest; for facts (readFacts) it leaves
 // out what they never read, as readChat does: the assistant's blocks, the
 // tools' outputs, and the copies of raw values a parse kept would need.
 func readAnthropic(body []byte, clientMarks, facts bool) (*Request, error) {
+	return readAnthropicAs(body, clientMarks, facts, false)
+}
+
+// readAnthropicAs is readAnthropic, keeping an advisor (keepAdvisor) as
+// parseAnthropicForBridge says.
+func readAnthropicAs(body []byte, clientMarks, facts, keepAdvisor bool) (*Request, error) {
 	decode := decodeJSON
 	if facts {
 		decode = decodeJSONView
@@ -258,6 +274,10 @@ func readAnthropic(body []byte, clientMarks, facts bool) (*Request, error) {
 				r.WebSearch = true
 			}
 			if strings.HasPrefix(t.Type, "advisor_") {
+				if keepAdvisor && t.Name == "advisor" && t.Model != "" {
+					r.advisor = t.Model
+					continue
+				}
 				// Claude Code's advisor: its instructions, which would
 				// have the model call a tool it hasn't got (advisor.go)
 				for i := range r.Messages {
@@ -1461,6 +1481,9 @@ type aUsage struct {
 	// reads from Claude Code. A vendor that leaves it out is told by its
 	// stream (hidesReasoning, #4545)
 	OutputTokensDetails *aOutputDetails `json:"output_tokens_details,omitempty"`
+	// Iterations is Anthropic's per-model usage of the request, an
+	// advisor's sub-calls among them, kept as it says them
+	Iterations *[]json.RawMessage `json:"iterations,omitempty"`
 }
 
 type aCacheCreation struct {
@@ -1483,6 +1506,7 @@ func (u aUsage) usage() Usage {
 	if d := u.OutputTokensDetails; d != nil {
 		out.Reasoning = d.ThinkingTokens
 	}
+	out.Iterations = u.Iterations
 	return out
 }
 
@@ -1498,6 +1522,7 @@ func (u Usage) anthropic() aUsage {
 	if u.Reasoning > 0 {
 		out.OutputTokensDetails = &aOutputDetails{ThinkingTokens: u.Reasoning}
 	}
+	out.Iterations = u.Iterations
 	return out
 }
 
@@ -1756,9 +1781,10 @@ func (e *anthropicEncoder) event(ev Event) {
 			e.thinking()
 			e.delta(map[string]any{"type": "signature_delta", "signature": ev.Text})
 		}
-	case KSealed:
-		if ev.Name == sealAnthropic {
-			// a redacted_thinking block, whole as Anthropic wrote it
+	case KSealed, KAdvisor:
+		if ev.Kind == KAdvisor || ev.Name == sealAnthropic {
+			// a redacted_thinking or advisor block, whole as Anthropic
+			// wrote it
 			e.close()
 			e.fresh = false
 			e.w.event("content_block_start", map[string]any{"type": "content_block_start", "index": e.index, "content_block": json.RawMessage(ev.Text)})
@@ -1850,6 +1876,8 @@ func renderAnthropic(res Result, model string) []byte {
 	var cite citer
 	for _, p := range res.Parts {
 		switch p.Kind {
+		case Advisor:
+			content = append(content, p.AdvisorRaw)
 		case Text:
 			if p.Text == "" && p.Signature != "" {
 				continue // only Gemini's signature, which is Gemini's

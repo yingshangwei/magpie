@@ -856,6 +856,57 @@ not covered. `TestClaudePrivacyEnvironment`,
 `TestClaudePrivacyRunEnvironment`, `TestClaudePrivacyGitSources`,
 `TestClaudePrivacyWSLEnvironment`.
 
+## Advisor calls
+
+A Messages client that offers Claude Code's advisor (`advisor_20260301`,
+`/advisor`, `--advisor`) keeps it on a Claude subscription.
+`serveClaudeSubscription` maps its model as a relay does (`advisorTools`
+in [`advisor.go`](../../internal/gateway/advisor.go)): one of this
+provider's Claude models, named by its id (`claude/claude-opus-5-5`,
+`[1m]` cut off) or by a Claude id naming no provider, goes as the upstream's
+name; another provider's, a group's or a model that isn't Claude's is
+left out, with Claude Code's own "no longer available" words in place of
+its instructions. A kept one stays in the request
+(`parseAnthropicForBridge`, `Request.advisor`), its instructions with it,
+whichever way `serveSubscriptionAs` reads it, and `startRun` passes
+`--advisor <model>`.
+
+The interactive mode takes it as `-p` does: `interactiveArgs` keeps it,
+and Claude Code 2.1.296 reads `--advisor` (a hidden option of its root
+command) into the session's starting state in both modes, read from its
+binary. Claude Code turns its advisor on by a feature flag
+(`tengu_sage_compass2`) the run never reads (`forkBridgeTelemetryOff`), so
+a run with an advisor is given `CLAUDE_CODE_ENABLE_EXPERIMENTAL_ADVISOR_TOOL=1`
+(in `claudeEnvVars` for WSL too). Claude Code still checks the account
+and the advisor model: one it can't use, or one still waiting on the
+user's consent, ends the run as it ends `claude --advisor`.
+
+Claude Code takes `--advisor` only as it starts. A run's keys name its
+advisor (`cacheIdentity`, only when there is one, so other requests keep
+their keys), so a turn asking another advisor, or none, never finds a run
+started with the old one; a request that reaches such a run another way
+(its tool results, by their call ids) fails `setSafeguards` and gets a new
+run, told the conversation whole. As with other restarts, the advisor's opaque history stays in the
+native session, not in the retold user message.
+
+`readOutput` carries `server_tool_use` for advisor and
+`advisor_tool_result` (`KAdvisor`, `Part.AdvisorRaw`) as complete blocks to
+streamed and whole Messages replies, encrypted and error results
+included; a server tool's input deltas never become a client call's
+arguments. A native `pause_turn` goes on inside the same reply while
+Claude Code continues it. `usage.iterations` keeps the model-specific
+advisor counts (`Usage.Iterations`), those of every message of the reply
+in order (`after`); top-level token totals stay the executor's. The
+gateway's usage ledger still prices those executor totals only.
+`TestClaudeSubscriptionForwardsAdvisor` (`-p` and interactive),
+`TestClaudeSubscriptionAdvisorChanges`,
+`TestClaudeSubscriptionAdvisorFixedForTheRun`,
+`TestClaudeSubscriptionAdvisorReply`,
+`TestClaudeSubscriptionAdvisorWholeOutput`,
+`TestClaudeSubscriptionLeavesForeignAdvisorOut` and
+`TestInteractiveArgsKeepTheAdvisor` (`internal/claudetui`) cover this
+path; a real interactive run with an advisor has not been tried.
+
 ## Why turns go on in one run
 
 A run started anew is told the whole conversation in one user message

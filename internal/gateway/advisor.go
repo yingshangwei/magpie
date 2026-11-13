@@ -92,6 +92,12 @@ func advisorModel(p provider.Provider, model string, wires map[string]string) (s
 	if model == "" {
 		return "", false
 	}
+	// p's own model by p's id, as Claude Code names it on magpie
+	// (claude/claude-opus-5-5), whether or not Resolve finds p
+	if own, ok := strings.CutPrefix(model, p.ID+"/"); ok {
+		name := provider.UpstreamNameIn(wires, p.ID, own)
+		return name, anthropicModel.MatchString(name)
+	}
 	if q, m, ok := provider.Resolve(model); ok && !provider.IsGroupRef(model) {
 		if q.ID != p.ID {
 			return "", false

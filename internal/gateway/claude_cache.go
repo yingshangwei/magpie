@@ -350,6 +350,11 @@ func cacheIdentity(h hash.Hash, req *Request) {
 	if req.leanPrompt {
 		fmt.Fprint(h, "\x00lean-prompt")
 	}
+	// a run started with an advisor (--advisor) has it for good, and one
+	// without never gets one: a turn with another goes on in a run of its own
+	if req.advisor != "" {
+		fmt.Fprintf(h, "\x00advisor:%s", req.advisor)
+	}
 }
 
 func cacheDropped(w http.ResponseWriter, req *Request) {
