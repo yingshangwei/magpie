@@ -11,6 +11,15 @@ doesn't speak the agent's API, the gateway translates. When an upstream
 fails before any of the reply is sent, the gateway moves to the next
 candidate.
 
+`settings.accountEfforts` can force a reasoning effort for one selected
+account or API key after routing picked it, keyed
+`"<provider>/<AccountID()>"` with a level from `provider.MemberEfforts`; it
+is applied per try (`provider.AccountEffort` in
+[`agenteffort.go`](../../internal/provider/agenteffort.go)), so a fallback
+rebuilt from the original request takes the next account's own setting
+rather than the first account's, and an invalid value changes nothing. The
+Settings page's save carries the field over whole (`settingsapi.Merge`).
+
 A group can opt into `retryBeforeFallback` (`provider.RetryPolicy`):
 `{"count","interval","maxWait","cooldown"}` in seconds, for example
 `{"count":5,"interval":15,"maxWait":300,"cooldown":600}` permits at most six

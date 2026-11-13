@@ -281,6 +281,7 @@ func Merge(body []byte, cur settings.Settings, web bool) (settings.Settings, err
 	in.FastPicks = cur.FastPicks             // switched in the agents' pickers (#954)
 	in.UltraPicks = cur.UltraPicks           // and sent Ultrafast (#1954)
 	in.AgentEfforts = cur.AgentEfforts       // picked in an agent's row (#1003)
+	in.AccountEfforts = cur.AccountEfforts   // per-account or key overrides, set on their own row
 	in.PluginCheckins = cur.PluginCheckins   // set on its own (plugin-checkin)
 	in.PluginOptions = cur.PluginOptions     // set on its own (plugin-option)
 	in.CheckinOff = cur.CheckinOff           // set on its own (checkin-account)

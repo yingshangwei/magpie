@@ -3941,6 +3941,13 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// one, a suffix and the turn's pick are more particular
 			fixed = withinLevels(agentPick, levels)
 		}
+		if accountEffort := provider.AccountEffort(c.p); accountEffort != "" && c.p.Thinks(c.model) {
+			// an override for the account or key this try was actually
+			// selected for, applied after the selection: a fallback sends
+			// each try from the original request under its own account's
+			// setting, never the first account's
+			fixed, ruled = accountEffort, ""
+		}
 		// a member that sends another level than the one asked (its
 		// EffortMaps, LuckymanJC on Discord: one vendor's high is
 		// another's xhigh) is sent that, whoever asked: a suffix, the
