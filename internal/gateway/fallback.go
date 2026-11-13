@@ -2553,12 +2553,13 @@ func matesLast(left []candidate, c candidate) {
 // before it (#248), and a reply that isn't streamed is held whole to read
 // for one.
 type holdWriter struct {
-	w       http.ResponseWriter
-	hold    bool
-	header  http.Header
-	status  int
-	passing bool
-	held    bytes.Buffer
+	retryExpired bool // the configured same-account retry window elapsed
+	w            http.ResponseWriter
+	hold         bool
+	header       http.Header
+	status       int
+	passing      bool
+	held         bytes.Buffer
 
 	stream     bool      // a stream held until its first content
 	since      time.Time // when it began
