@@ -230,6 +230,10 @@ type Group struct {
 	// together: one rate limited with quota left goes behind every other
 	// member's. Not for "rotate" or Manual.
 	Sink bool `json:"sink,omitempty"`
+	// RetryBeforeFallback keeps transient failures on the same account
+	// before cooling it down and asking another member. A nil policy, or one
+	// whose Count is 0, leaves the ordinary retry, patience and rest rules.
+	RetryBeforeFallback *RetryPolicy `json:"retryBeforeFallback,omitempty"`
 	// NoSink is the user's Keeps its place for the group itself: none
 	// sinks, whatever the default for every group says (Sinks). Neither
 	// set, the group follows that default.
@@ -550,6 +554,10 @@ func cloneGroups(gs []Group) []Group {
 	}
 	out := make([]Group, len(gs))
 	for i, g := range gs {
+		if g.RetryBeforeFallback != nil {
+			r := *g.RetryBeforeFallback
+			g.RetryBeforeFallback = &r
+		}
 		g.Members, g.Match, g.Matched, g.Placed = slices.Clone(g.Members), slices.Clone(g.Match), slices.Clone(g.Matched), slices.Clone(g.Placed)
 		g.Off, g.Levels, g.Fast, g.Ultra = slices.Clone(g.Off), slices.Clone(g.Levels), slices.Clone(g.Fast), slices.Clone(g.Ultra)
 		g.Accounts, g.Seen, g.Keys = slices.Clone(g.Accounts), slices.Clone(g.Seen), slices.Clone(g.Keys)
@@ -741,6 +749,10 @@ func seenIn(id string, was, own []string, entries []Entry) []string {
 // cleaning one — would change it for every reader in that while, and keep
 // the change there when the save failed.
 func (g Group) own() Group {
+	if g.RetryBeforeFallback != nil {
+		r := *g.RetryBeforeFallback
+		g.RetryBeforeFallback = &r
+	}
 	g.Members = slices.Clone(g.Members)
 	g.Match = slices.Clone(g.Match)
 	g.Matched = slices.Clone(g.Matched)
@@ -1820,6 +1832,9 @@ func CleanNote(s string) string {
 // found makes it the user's.
 func SaveGroup(g Group) error {
 	g = g.own() // cleaned below in place: the caller's lists stay as they were
+	if err := g.RetryBeforeFallback.check(); err != nil {
+		return err
+	}
 	g.canonicalRefs()
 	g.ID = strings.ToLower(strings.TrimSpace(g.ID))
 	g.Name = strings.TrimSpace(g.Name)

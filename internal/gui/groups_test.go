@@ -56,6 +56,48 @@ func TestGroupSaveRenames(t *testing.T) {
 	}
 }
 
+// Older editors do not send a group's optional retry policy: a save of
+// other fields keeps the one in providers.json, and an explicit count 0
+// disables it.
+func TestGroupSavePreservesRetryPolicy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	if err := provider.Save(provider.Provider{ID: "a", Name: "A", Key: "k", Chat: "http://127.0.0.1:1/v1", Models: []string{"m"}}); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	groupRoutes(mux)
+	post := func(extra string) {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("POST", "/api/groups/save", strings.NewReader(
+			`{"id":"g","name":"G","members":["a/m"]`+extra+`}`)))
+		if w.Code != 200 {
+			t.Fatalf("%d %s", w.Code, w.Body)
+		}
+	}
+	post(`,"retryBeforeFallback":{"count":5,"interval":15,"maxWait":300,"cooldown":600}`)
+	want := provider.RetryPolicy{Count: 5, Interval: 15, MaxWait: 300, Cooldown: 600}
+	g, _, ok := provider.FindGroup("group/g")
+	if !ok || g.RetryBeforeFallback == nil || *g.RetryBeforeFallback != want {
+		t.Fatalf("the policy wasn't saved: %+v", g.RetryBeforeFallback)
+	}
+	// a save without the field, as an older editor sends, keeps it
+	post(``)
+	g, _, _ = provider.FindGroup("group/g")
+	if g.RetryBeforeFallback == nil || *g.RetryBeforeFallback != want {
+		t.Fatalf("the policy was dropped: %+v", g.RetryBeforeFallback)
+	}
+	// an explicit disable is honored rather than kept
+	post(`,"retryBeforeFallback":{"count":0}`)
+	g, _, _ = provider.FindGroup("group/g")
+	if g.RetryBeforeFallback == nil || g.RetryBeforeFallback.Count != 0 {
+		t.Fatalf("the explicit disable was ignored: %+v", g.RetryBeforeFallback)
+	}
+}
+
 // The Routing view's switch turns found groups off and on (蓝猫 on
 // Discord): the state says which, and off lists none of them.
 func TestGroupsFoundSwitch(t *testing.T) {

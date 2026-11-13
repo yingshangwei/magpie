@@ -11,6 +11,37 @@ doesn't speak the agent's API, the gateway translates. When an upstream
 fails before any of the reply is sent, the gateway moves to the next
 candidate.
 
+A group can opt into `retryBeforeFallback` (`provider.RetryPolicy`):
+`{"count","interval","maxWait","cooldown"}` in seconds, for example
+`{"count":5,"interval":15,"maxWait":300,"cooldown":600}` permits at most six
+attempts of the original account or key — the first plus five retries — on
+a fixed interval. A transient 408, 429 (a relay's quota-pool 429 included)
+or 5xx held before the reply began is retried on the same account before it
+rests, sinks or another member is selected; invalid requests, auth and
+credit refusals, safety and shape refusals, turned-away prompts, peer
+exchange interruptions and replies already sent keep their ordinary
+handling. The `maxWait` window starts at each member's first transient failure, when
+it enters the retry schedule. Its first attempt keeps the upstream's ordinary
+wait behavior. During retries the same window covers fixed pauses, gateway
+key, near-cap, account/lane and RPM queues, and waiting for the upstream. A
+pending retry is stopped at the deadline, recorded as a 504 and replaced by
+the next member. With no member left, the client receives a 504, or a terminal
+error event if its stream has begun; a reply that has begun is allowed to finish. While the policy
+is active the group's Patience rounds, the affinity `keptAgain` retry and
+the ordinary last-candidate same-one retries stand down, so no policy retry
+is stacked on top of them. During the retry window only a rest with
+`By == "retry-policy"` stops policy retries, so a model-level rest set by
+another request still permits up to `count` additional attempts.
+After the retries are exhausted a positive
+`cooldown` sets a fixed rest (`Rest.By` "retry-policy") for the account's
+key across all its models, also sinking it when the group sinks; it cannot be probed or shortened
+by an overlapping request's success, and a lone cooling account answers 503
+with Retry-After until the rest ends. A `cooldown` of zero keeps the
+ordinary rest rules. The setting is optional and applies only to requests
+naming the configured group, not direct provider requests or an enclosing
+group; an explicit `count:0` disables it, and group editors that omit the
+field keep the saved one. See [`member_retry.go`](../../internal/gateway/member_retry.go).
+
 This page covers how a request is routed. Plugins that change requests and
 replies are in [Gateway middleware](gateway-middleware.md). Subscriptions
 served by a plugin are in [Provider and plugin ownership](provider-plugins.md).
