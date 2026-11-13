@@ -550,6 +550,12 @@ type Usage struct {
 	// conversation, which their own replies couldn't (cUsage's
 	// MagpieDeferred): billed with this one, never told as its prompt
 	Deferred *Usage `json:"deferred,omitempty"`
+	// ContextEstimate is the current prompt's own size estimated when a
+	// native plugin's step hasn't reported its usage yet (Cursor's
+	// magpie_native "pending" steps): translated clients read it as how full
+	// their context is, so they can compact. Actual measured usage takes
+	// precedence, and it is never a charge: billed() drops it.
+	ContextEstimate int `json:"context_estimate,omitempty"`
 	// Credits is what the reply said the request cost in its plan's own
 	// credits, nil when it said none: WorkBuddy's usage.credit, the
 	// figure its app shows on each reply as "Credits Consumed" (#2512)
@@ -578,6 +584,7 @@ func (u Usage) billed() Usage {
 		u.Reasoning += d.Reasoning
 		u.Deferred = nil
 	}
+	u.ContextEstimate = 0
 	return u
 }
 
@@ -586,6 +593,16 @@ func (u Usage) billed() Usage {
 // what was written to it.
 func (u Usage) prompt() int {
 	return u.Input + u.CacheRead + u.CacheWrite
+}
+
+// clientPrompt is what a translated client is told its prompt came to: the
+// measured count when there is one, else a native plugin step's local
+// estimate of the request it was sent (Usage.ContextEstimate).
+func (u Usage) clientPrompt() int {
+	if n := u.prompt(); n > 0 {
+		return n
+	}
+	return u.ContextEstimate
 }
 
 func (u *Usage) add(v Usage) {
@@ -639,6 +656,9 @@ func (u *Usage) add(v Usage) {
 	}
 	if v.Deferred != nil {
 		u.Deferred = v.Deferred
+	}
+	if v.ContextEstimate > 0 {
+		u.ContextEstimate = v.ContextEstimate
 	}
 	if v.Credits != nil {
 		u.Credits = v.Credits

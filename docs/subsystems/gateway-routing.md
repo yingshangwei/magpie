@@ -20,6 +20,21 @@ rebuilt from the original request takes the next account's own setting
 rather than the first account's, and an invalid value changes nothing. The
 Settings page's save carries the field over whole (`settingsapi.Merge`).
 
+The Cursor plugin's native tool steps can carry
+`usage.magpie_native = {"accounting":"pending"}` with a zero prompt count
+(opencode-cursor-auth 0.2.41+): the usage for that step is not known yet,
+so translated clients would otherwise read an empty context and never
+compact a long conversation. The plugin's Chat decoder
+(`decoderOf` in [`gateway.go`](../../internal/gateway/gateway.go)) substitutes
+the local estimate of the request it was sent (`estimate`, the same count
+as the `count_tokens` route) into `Usage.ContextEstimate`, which the Chat,
+Anthropic, Responses and Gemini renderings tell as the prompt count only
+while no measured prompt usage exists. The estimate is wire-facing only:
+`Usage.billed()` and the deferred-usage accounting drop it, so the ledger
+never charges it, and a later step's measured count takes precedence. A zero
+usage without the pending marker, from another plugin or a replayed reply,
+stays zero.
+
 A group can opt into `retryBeforeFallback` (`provider.RetryPolicy`):
 `{"count","interval","maxWait","cooldown"}` in seconds, for example
 `{"count":5,"interval":15,"maxWait":300,"cooldown":600}` permits at most six
