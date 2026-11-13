@@ -1005,12 +1005,22 @@ func handBack(ctx context.Context, id string, mv *mover, accts []movedAccount, k
 // start-up: once, or again retryWait after one failed. One an older magpie
 // moved back is moved again: there is no way back, as the built-in is
 // going. One whose plugin the user removed waits for them to install it.
+// A built-in whose code still serves the subscription (BuiltinRetired is
+// false) is withheld from the automatic move: it changes only by hand
+// (Adopt/Move) or once its user installs the plugin themselves
+// (HandOver). Today that keeps Antigravity, whose accounts stay built in,
+// off the hourly move.
 func MoveRetiring(ctx context.Context) map[string]error {
 	if settings.AccountDiscoveryOff() {
 		return nil
 	}
 	out := map[string]error{}
 	for _, id := range retiring() {
+		if !BuiltinRetired(id) {
+			// the built-in's code hasn't been removed: nothing moves it
+			// without the user choosing the plugin
+			continue
+		}
 		m, ok := MigrationOf(id)
 		switch {
 		case ok && m.State == MovePlugin:
