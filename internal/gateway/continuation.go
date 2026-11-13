@@ -645,7 +645,7 @@ func (s *Server) streamTranslated(w http.ResponseWriter, r *http.Request, p prov
 					return writeError(w, from, 502, failed), failed
 				}
 			} else {
-				dec := carryReasoning(decoderFor(p, actual, request.Tools), from, actual)
+				dec := carryReasoning(decoderFor(p, actual, request.Tools, request), from, actual)
 				attemptSee := see
 				if names := textCallNames(request.Tools); names != nil {
 					t := &textCallSee{names: names, see: see}

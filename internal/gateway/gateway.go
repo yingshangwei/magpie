@@ -9355,7 +9355,7 @@ func (s *Server) translate(w http.ResponseWriter, r *http.Request, p provider.Pr
 		}
 		return writeVendorErrorFrom(w, from, actual, p, res, msg, b), msg
 	}
-	dec := carryReasoning(decoderFor(p, actual, request.Tools), from, actual)
+	dec := carryReasoning(decoderFor(p, actual, request.Tools, request), from, actual)
 	rd, sse := eventStream(res)
 	if !sse {
 		// the provider ignored stream:true; read the whole reply as one
@@ -9737,13 +9737,19 @@ func build(proto provider.Protocol, r *Request, model, host string, rejectTemp b
 //
 // Each Gemini thought signature the reply gives is noted as p's
 // (signersNoted), so it goes back to p alone (ownSignatures).
-func decoderFor(p provider.Provider, proto provider.Protocol, tools []Tool) func(data string, emit func(Event)) error {
-	return signersNoted(decoderOf(p, proto, tools), p.ID)
+func decoderFor(p provider.Provider, proto provider.Protocol, tools []Tool, request *Request) func(data string, emit func(Event)) error {
+	return signersNoted(decoderOf(p, proto, tools, request), p.ID)
 }
 
-func decoderOf(p provider.Provider, proto provider.Protocol, tools []Tool) func(data string, emit func(Event)) error {
+func decoderOf(p provider.Provider, proto provider.Protocol, tools []Tool, request *Request) func(data string, emit func(Event)) error {
 	if proto == provider.Chat && p.IsPlugin() {
 		d := &chatDecoder{past: true}
+		if request != nil && p.PluginProvider() == "cursor" {
+			// Cursor's native plugin hands back tool steps whose usage is
+			// still "pending": with no prompt count of its own, the decoder
+			// tells translated clients the request's estimated context size
+			d.contextEstimate = estimate(request)
+		}
 		return d.decode
 	}
 	dec := decoder(proto)

@@ -1149,6 +1149,14 @@ type cUsage struct {
 	// token_usage naming no cache field (yetone/magpie#3991, #3979).
 	// It is read, never told: chat() leaves it out.
 	MagpieCacheUnknown bool `json:"magpie_cache_unknown"`
+	// MagpieNative is a native plugin's own marker, and when it names
+	// "pending" with no prompt count, the step's usage isn't known yet: the
+	// chatDecoder substitutes its estimate of the request's context instead,
+	// which Cursor's Claude Code compacts on. Measured prompt usage always
+	// takes over from the estimate.
+	MagpieNative *struct {
+		Accounting string `json:"accounting"`
+	} `json:"magpie_native,omitempty"`
 }
 
 func (u cUsage) usage() Usage {
@@ -1186,7 +1194,7 @@ func (u cUsage) usage() Usage {
 }
 
 func (u Usage) chat() map[string]any {
-	in := u.prompt()
+	in := u.clientPrompt()
 	return map[string]any{"prompt_tokens": in, "completion_tokens": u.Output, "total_tokens": in + u.Output,
 		"prompt_tokens_details":     map[string]any{"cached_tokens": u.CacheRead, "cache_write_tokens": u.CacheWrite},
 		"completion_tokens_details": map[string]any{"reasoning_tokens": u.Reasoning}}
@@ -1210,6 +1218,10 @@ type chatDecoder struct {
 	toolDone  bool      // they are whole JSON: a call that starts now comes after it
 	held      []*heldCall
 	choice    string // index of the first choice seen; an empty string means none yet
+	// contextEstimate, set on a native plugin's Chat decoder, is the size
+	// of the request it reads: a magpie_native "pending" step with no prompt
+	// count tells the client this instead of zero, never as a charge
+	contextEstimate int
 	// Gemini's OpenAI-compatible API, asked for thoughts, may give them
 	// in the text as a leading <thought>…</thought>, and MiniMax's Chat
 	// API (#1267), like the open models served without a reasoning
@@ -1528,8 +1540,18 @@ func (d *chatDecoder) decode(data string, emit func(Event)) error {
 			emit(Event{Kind: KStop, Stop: stopFromChat(c.FinishReason)})
 		}
 	}
-	if ch.Usage != nil && (ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.MagpieDeferred != nil || ch.Usage.Credit != nil) {
-		emit(Event{Kind: KUsage, Usage: ch.Usage.usage()})
+	if ch.Usage != nil {
+		pending := ch.Usage.MagpieNative != nil && ch.Usage.MagpieNative.Accounting == "pending" && ch.Usage.PromptTokens == 0
+		if ch.Usage.PromptTokens > 0 || ch.Usage.CompletionTokens > 0 || ch.Usage.MagpieDeferred != nil || ch.Usage.Credit != nil || pending {
+			u := ch.Usage.usage()
+			if pending && u.prompt() == 0 {
+				// the estimate uses the same count as Cursor's
+				// count_tokens route: what the client reads as how full
+				// its context is, until the step's real usage arrives
+				u.ContextEstimate = d.contextEstimate
+			}
+			emit(Event{Kind: KUsage, Usage: u})
+		}
 	}
 	return nil
 }
