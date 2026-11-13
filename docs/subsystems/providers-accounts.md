@@ -360,8 +360,10 @@ value. A provider's own headers leave it out wherever they are sent
 (`SentHeaders`: requests, balance reads, balance probes, quotas, images,
 a remote magpie's lists), and so does `catalog.PutUserHeader`, so a
 header the user typed can't put it back, in model discovery either. The
-gateway's Codex header copies (`copyHeaders`) can bypass `Sign` and apply
-the same predicate (`catalog.PrivateClientHeader`). Other headers keep
+gateway's Codex header copies (`copyHeaders`) and remote MCP forwarding
+(`mcpProxy` in [`mcp.go`](../../internal/gateway/mcp.go)) can bypass `Sign`
+and apply the same predicate (`catalog.PrivateClientHeader`), including
+the MCP request retried after a 401. Other headers keep
 their existing handling; a refusal never causes a retry with the removed
 header restored.
 

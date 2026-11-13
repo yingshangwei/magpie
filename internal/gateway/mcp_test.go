@@ -2,15 +2,20 @@ package gateway
 
 import (
 	"bufio"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/yetone/magpie/internal/access"
 	"github.com/yetone/magpie/internal/mcpauth"
 	"github.com/yetone/magpie/internal/mcpauth/mcpauthtest"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // /mcp/<server> is a remote MCP server magpie signed in to (#615), as the
@@ -113,6 +118,93 @@ func TestMCPProxy(t *testing.T) {
 	r2.Body.Close()
 	if r2.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown server: %d", r2.StatusCode)
+	}
+}
+
+func TestMCPProxyDropsPrivateClientHeaders(t *testing.T) {
+	for _, name := range []string{
+		"x-claude-code-wiggly-dove",
+		"X-Claude-Code-Wiggly-Dove",
+		"x-ClAuDe-CoDe-WiGgLy-DoVe",
+	} {
+		t.Run(name, func(t *testing.T) {
+			fresh(t)
+			const token = "fixture-access"
+			b, err := json.Marshal(map[string]mcpauth.Record{"neon": {
+				URL: "https://mcp.example.test/mcp", TokenURL: "https://mcp.example.test/token",
+				ClientID: "fixture-client", Access: token, Refresh: "fixture-refresh",
+			}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(settings.Dir(), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(settings.Dir(), "mcp-signins.json"), b, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			old, oldAuth := mcpClient, mcpauth.Client
+			t.Cleanup(func() { mcpClient, mcpauth.Client = old, oldAuth })
+			calls, renewals := 0, 0
+			mcpauth.Client = &http.Client{Transport: countTransport(func(req *http.Request) (*http.Response, error) {
+				renewals++
+				if err := req.ParseForm(); err != nil {
+					t.Error(err)
+				}
+				if req.URL.String() != "https://mcp.example.test/token" ||
+					req.Form.Get("grant_type") != "refresh_token" || req.Form.Get("refresh_token") != "fixture-refresh" {
+					t.Error("renewal did not use the saved MCP sign-in")
+				}
+				w := httptest.NewRecorder()
+				w.Header().Set("Content-Type", "application/json")
+				w.Write([]byte(`{"access_token":"fixture-renewed","refresh_token":"fixture-next","token_type":"Bearer","expires_in":3600}`))
+				return w.Result(), nil
+			})}
+			// Inspect both requests before a network writer canonicalizes
+			// their headers; both MCP and OAuth use memory transports.
+			mcpClient = &http.Client{Transport: countTransport(func(req *http.Request) (*http.Response, error) {
+				calls++
+				for k := range req.Header {
+					if strings.EqualFold(k, "x-claude-code-wiggly-dove") {
+						t.Errorf("request %d forwarded private client header %s", calls, k)
+					}
+				}
+				if req.Header.Get("Mcp-Session-Id") != "fixture-session" ||
+					!slices.Equal(req.Header.Values("X-Team"), []string{"one", "two"}) {
+					t.Errorf("request %d lost unrelated headers: %v", calls, req.Header)
+				}
+				auth := req.Header.Get("Authorization")
+				if calls == 1 && auth != "Bearer "+token {
+					t.Errorf("first request did not use the saved MCP token")
+				}
+				if calls == 2 && auth != "Bearer fixture-renewed" {
+					t.Errorf("retry did not use a renewed MCP token")
+				}
+				w := httptest.NewRecorder()
+				if calls == 1 {
+					w.WriteHeader(http.StatusUnauthorized)
+				} else {
+					w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}`))
+				}
+				return w.Result(), nil
+			})}
+			req := httptest.NewRequest("POST", "/mcp/neon", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+			req.RemoteAddr = "127.0.0.1:5000"
+			req.Host = "localhost:3425"
+			req.Header.Set("Authorization", "Bearer "+Token)
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Mcp-Session-Id", "fixture-session")
+			req.Header["X-Team"] = []string{"one", "two"}
+			req.Header[name] = []string{"private-first", "private-second"}
+			w := httptest.NewRecorder()
+			lanGuard(New().Handler()).ServeHTTP(w, req)
+			if w.Code != http.StatusOK || calls != 2 || renewals != 1 {
+				t.Fatalf("retry result: status %d, calls %d, renewals %d, body %s", w.Code, calls, renewals, w.Body.String())
+			}
+			if !slices.Equal(req.Header[name], []string{"private-first", "private-second"}) {
+				t.Error("proxy changed the caller's headers")
+			}
+		})
 	}
 }
 
