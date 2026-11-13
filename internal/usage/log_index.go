@@ -297,6 +297,10 @@ func readLogSnapshot() *logSnapshot {
 type routeRows map[int64]int
 
 func (o routeRows) seen(c *rowChunk, i int) {
+	// an advisor's row shares its executor's route, and is no try of it
+	if c.Strings[c.text(&c.Rows[i], rowOperation)] == AdvisorOperation {
+		return
+	}
 	if id := c.Rows[i].RouteID; id != 0 {
 		o[id] = i
 	}
@@ -308,7 +312,7 @@ func (o routeRows) seen(c *rowChunk, i int) {
 // it. Only rows in the same block are told, which is where the gateway's
 // rows of one request land but for one in 512 at a block's edge.
 func (o routeRows) handedOn(c *rowChunk, r *Record) {
-	if r.RouteID == 0 {
+	if r.RouteID == 0 || r.IsAdvisor() {
 		return
 	}
 	j, ok := o[r.RouteID]

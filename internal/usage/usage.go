@@ -411,6 +411,17 @@ func (r Record) IsRejected() bool { return r.Rejected || r.Provider == "" && r.S
 // calls long past and none of them were magpie's to route.
 func (r Record) IsReported() bool { return r.Source == SourceReported }
 
+// AdvisorOperation marks a server-side advisor's billable usage, linked to
+// its executor by RouteID. It is not another request received by the gateway.
+const AdvisorOperation = "advisor"
+
+// IsAdvisor is whether r is an advisor's sub-call (AdvisorOperation).
+func (r Record) IsAdvisor() bool { return r.Operation == AdvisorOperation }
+
+// CountsRequest is whether r ends a request the gateway received: not a
+// try handed to a later one, nor an advisor's sub-call billed beside it.
+func (r Record) CountsRequest() bool { return !r.HandedOn && !r.IsAdvisor() }
+
 // Load streams complete records from the log. Historical request bodies are
 // not retained by a global cache after the caller finishes with this snapshot.
 func Load(since time.Time) []Record {
@@ -964,7 +975,7 @@ func (t *Totals) count(r Record) {
 		t.Credits += *r.Credits
 		t.Credited++
 	}
-	if r.HandedOn {
+	if !r.CountsRequest() {
 		return
 	}
 	t.Calls++
@@ -983,7 +994,7 @@ func (t *Totals) count(r Record) {
 
 // LostRequest is whether r ends a request the agent got an error for: a
 // failed row that no later try took over from.
-func (r Record) LostRequest() bool { return r.Failed() && !r.HandedOn }
+func (r Record) LostRequest() bool { return r.Failed() && r.CountsRequest() }
 
 // FailedTry is whether a try of r's request failed: r failed (whether the
 // agent got the error or a later try took over), or r answered after a
@@ -994,7 +1005,7 @@ func (r Record) FailedTry() bool { return r.Failed() || r.RetriedRequest() }
 
 // RetriedRequest is whether r ends a request that was answered after a try
 // that failed first (not one its agent canceled after a failed try).
-func (r Record) RetriedRequest() bool { return !r.HandedOn && r.Answered() && r.Tries > 1 }
+func (r Record) RetriedRequest() bool { return r.CountsRequest() && r.Answered() && r.Tries > 1 }
 
 // Group is the share of one agent or model.
 type Group struct {
@@ -1035,7 +1046,7 @@ func (g *Group) addOwn(r Record, price *catalog.Price) {
 	if !r.ByMagpie() {
 		return
 	}
-	if !r.HandedOn {
+	if r.CountsRequest() {
 		g.Own.Calls++
 	}
 	g.Own.Tokens += r.Input + r.Output
@@ -1201,7 +1212,7 @@ type viaAcc struct {
 // a copy of base's: base is never written.
 func countVias(blocks []*rowChunk, since time.Time, renames provider.Renames, base, own map[string]viaAcc, keep keptStrings) {
 	visitBlocks(blocks, since, func(r Record) {
-		if r.IsRejected() || r.IsReported() || r.Session == "" || r.Model == "" {
+		if r.IsRejected() || r.IsReported() || r.IsAdvisor() || r.Session == "" || r.Model == "" {
 			return
 		}
 		r.Provider, r.Model, r.Effort = keep.of(renames.Of(r.Provider, r.Time)), keep.of(r.Model), keep.of(r.Effort)

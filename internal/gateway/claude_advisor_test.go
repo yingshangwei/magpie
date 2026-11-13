@@ -14,6 +14,7 @@ import (
 	"github.com/yetone/magpie/internal/claudetui"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/testenv"
+	"github.com/yetone/magpie/internal/usage"
 )
 
 // A Claude subscription's run is given the advisor the client offered, by
@@ -149,6 +150,10 @@ func TestClaudeSubscriptionAdvisorReply(t *testing.T) {
 				}
 				if got := gjson.Get(whole, "usage.iterations.#").Int(); got != int64(wantIterations) || c.res.Usage.Output != wantOutput {
 					t.Errorf("executor totals or advisor iterations changed: %s", whole)
+				}
+				advisors := advisorRecords(usage.Record{}, c.res.Usage)
+				if len(advisors) != 1 || advisors[0].Model != "claude-opus-5-5" || advisors[0].Input != 30 || advisors[0].Output != 4 {
+					t.Fatalf("native pause or usage updates duplicated/lost advisor billing: %+v", advisors)
 				}
 				for name, out := range map[string]string{"whole": whole, "stream": w.Body.String()} {
 					if !strings.Contains(out, call) || !strings.Contains(out, block) {

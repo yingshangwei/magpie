@@ -295,6 +295,8 @@ const (
 	// rowClient is the Text of the client's own name, when the user counts
 	// it as another agent (Row.Client, #1958)
 	rowClient = 33
+	// rowOperation is the Text of Record.Operation (AdvisorOperation)
+	rowOperation = 23
 	// rowTexts is how many strings a row has: rowText's and the message id
 	rowTexts = 37
 )

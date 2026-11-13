@@ -116,7 +116,7 @@ func (s speedRank) of(model string) *modelHist {
 // to another, not failed or canceled, its first token timed, and it wrote
 // MinRankTokens or more.
 func (s speedRank) add(r *Row) {
-	if r.IsRejected() || r.HandedOn || r.Failed() || r.Canceled() || r.TTFT <= 0 || r.Output < MinRankTokens {
+	if r.IsRejected() || !r.CountsRequest() || r.Failed() || r.Canceled() || r.TTFT <= 0 || r.Output < MinRankTokens {
 		return
 	}
 	m := s.of(r.Model)

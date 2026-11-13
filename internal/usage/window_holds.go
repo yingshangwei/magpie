@@ -261,7 +261,9 @@ func windowHolds(qs []provider.SubscriptionQuota, now, first time.Time, priceOf 
 				h = &provider.WindowHolds{Since: b.start}
 				sums[s] = h
 			}
-			h.Routed.Calls++
+			if !r.IsAdvisor() {
+				h.Routed.Calls++ // an advisor ran on the account, within its call
+			}
 			h.Routed.Tokens += int64(r.Input + r.Output)
 			h.Routed.CacheRead += int64(r.CacheRead)
 			h.Routed.CacheWrite += int64(r.CacheWrite)
