@@ -166,21 +166,39 @@ func TestClaudePrivacyGitSources(t *testing.T) {
 
 func TestClaudePrivacyWSLEnvironment(t *testing.T) {
 	cli := claudeCLI{wsl: &wslrun.Tool{}}
-	env := cli.env(cleanClaudeEnv([]string{"GIT_DIR=/test/project/.git"}), "")
-	var pass string
-	for _, e := range env {
-		if v, ok := strings.CutPrefix(e, "WSLENV="); ok {
-			pass = v
+	t.Run("Windows null device", func(t *testing.T) {
+		env := cli.env([]string{"GIT_CONFIG_GLOBAL=NUL"}, "")
+		if !slices.Contains(env, "GIT_CONFIG_GLOBAL=/dev/null") || slices.Contains(env, "GIT_CONFIG_GLOBAL=NUL") {
+			t.Error("WSL must rewrite GIT_CONFIG_GLOBAL=NUL to /dev/null")
 		}
-	}
-	for _, name := range []string{"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
-		"CLAUDE_CODE_PROMPT_CACHE_TTL", "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL"} {
-		if !slices.Contains(strings.Split(pass, ":"), name) {
-			t.Errorf("WSL run is missing %s", name)
-		}
-	}
-	if !slices.Contains(env, "GIT_CONFIG_GLOBAL=/dev/null") {
-		t.Error("WSL must use its Linux null device, not a Windows path")
+	})
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for name, envOf := range map[string]func([]string) []string{
+		"one-off": cleanClaudeEnv,
+		"turn":    func(env []string) []string { return claudeRunEnv(env, "5m") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := cli.env(envOf(privacyInput), "")
+			want := privacySettings("5m")
+			if name == "one-off" {
+				want["CLAUDE_CODE_PROMPT_CACHE_TTL"] = claudeRunTTL(privacyInput)
+			}
+			want["GIT_CONFIG_GLOBAL"] = "/dev/null"
+			privacyEnvHolds(t, env, want)
+			var pass string
+			for _, e := range env {
+				if v, ok := strings.CutPrefix(e, "WSLENV="); ok {
+					pass = v
+				}
+			}
+			for _, key := range []string{"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+				"CLAUDE_CODE_PROMPT_CACHE_TTL", "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL",
+				"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "DISABLE_TELEMETRY", "DO_NOT_TRACK"} {
+				if !slices.Contains(strings.Split(pass, ":"), key) {
+					t.Errorf("WSL run is missing %s in WSLENV", key)
+				}
+			}
+		})
 	}
 }
 

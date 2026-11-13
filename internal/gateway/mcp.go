@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/mcpauth"
 	"github.com/yetone/magpie/internal/netproxy"
 )
@@ -125,7 +126,7 @@ func (s *Server) mcpProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		for k, v := range r.Header {
 			// nor what a proxy in front of magpie says of the caller
-			if mcpHop[http.CanonicalHeaderKey(k)] || proxyIdentity(k) {
+			if mcpHop[http.CanonicalHeaderKey(k)] || proxyIdentity(k) || catalog.PrivateClientHeader(k) {
 				continue
 			}
 			// the gateway's own key, which the caller check put there

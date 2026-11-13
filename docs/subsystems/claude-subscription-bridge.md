@@ -869,9 +869,16 @@ never stands beside them. Git reads no system or global config
 Code reads `user.email` and `user.name` from it, and an include there can
 name a repository. A turn's run works in the caller's own folder
 (`clientWorkDir`, [below](#the-runs-working-folder-clientworkdir)), and
-that repository's own config, its remote included, stays readable to
-Claude Code; `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1` keeps only its status
-out of the prompt. Parent discovery is not limited.
+for a repository the user owns, its own config, its remote included, stays
+readable to Claude Code; `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1` keeps only
+its status out of the prompt. Parent discovery is not limited.
+
+Even in the caller's real folder, the bridge subprocess reads no system
+or global Git config: `safe.directory`, `credential.helper`, `includeIf`
+and global `core.excludesFile` there do not apply. Repositories the user
+owns are unaffected by the ownership check; Git may refuse a shared
+repository owned by someone else without its global `safe.directory`.
+`/usage` keeps its nonessential-traffic exception so it can refresh usage.
 
 Error reports, automatic updates, automatic memory and the official
 marketplace's autoinstall are off for every run
