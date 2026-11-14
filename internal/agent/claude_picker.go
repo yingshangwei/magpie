@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/yetone/magpie/internal/catalog"
 	"github.com/yetone/magpie/internal/edit"
 	"github.com/yetone/magpie/internal/filelock"
+	"github.com/yetone/magpie/internal/lazyre"
 	"github.com/yetone/magpie/internal/provider"
 	"github.com/yetone/magpie/internal/settings"
 )
@@ -50,7 +50,7 @@ func claudePickerSource(e provider.Entry) string {
 	return e.Provider.ID
 }
 
-var claudePickerStatus = regexp.MustCompile(`\s+⚠️?\s*\d+(?:\.\d+)?%$`)
+var claudePickerStatus = lazyre.New(`\s+⚠️?\s*\d+(?:\.\d+)?%$`)
 
 func claudePickerName(e provider.Entry) string {
 	name := strings.TrimSpace(cmp.Or(e.PlainName(), e.Model))
