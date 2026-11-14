@@ -40,7 +40,9 @@ with Retry-After until the rest ends. A `cooldown` of zero keeps the
 ordinary rest rules. The setting is optional and applies only to requests
 naming the configured group, not direct provider requests or an enclosing
 group; an explicit `count:0` disables it, and group editors that omit the
-field keep the saved one. See [`member_retry.go`](../../internal/gateway/member_retry.go).
+field keep the saved one. A remote provider saved at a new address also
+wakes a policy retry pause, and the next attempt uses that saved address,
+as in ordinary upstream retries. See [`member_retry.go`](../../internal/gateway/member_retry.go).
 
 This page covers how a request is routed. Plugins that change requests and
 replies are in [Gateway middleware](gateway-middleware.md). Subscriptions
