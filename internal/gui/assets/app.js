@@ -14551,11 +14551,6 @@ function laneLimitPill(p, ref, who, name) {
   };
   return pill;
 }
-// a key's spend cap, in keyspend.js
-function keySpend(row, p, k) {
-  if (window.keySpendFill) return keySpendFill(row, p, k);
-  import("./keyspend.js").then(() => keySpendFill(row, p, k), () => {});
-}
 // refreshLanes rewrites the pills in place; with none in sight its tick stops (#3185)
 async function refreshLanes() {
   if (document.hidden || view !== "providers" || !document.querySelector(".alane")) return lanesTick = clearInterval(lanesTick);
@@ -15031,7 +15026,8 @@ function renderKeyAccounts(p) {
     row.append(acts);
     if (restLine) row.append(restLine);
     if (amBox) row.append(amBox), row.classList.add("with-am");
-    keySpend(row, p, k);
+    if (window.keySpendFill) keySpendFill(row, p, k);
+    else import("./keyspend.js").then(() => keySpendFill(row, p, k), () => {});
     list.append(row);
   }
   list.append(...folds.after);
@@ -16105,6 +16101,7 @@ function ownLine(sub) {
 
 // lazy: drawn only if what the panel shows changed (#3192)
 function renderQuotas(lazy) {
+  window.renderKeyQuotas?.();
   renderPanelQuota(lazy);
   // the tray panel never shows the Usage page: its cards and curves are
   // not drawn there unseen (#3192)

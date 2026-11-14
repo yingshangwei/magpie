@@ -3,7 +3,9 @@
 // spend on it, in USD at the Usage page's prices, a day, a month or in
 // all. Past it the gateway passes the key over, as a usage cap holds an
 // account (provider/key_spend.go). app.js imports this when the provider
-// editor draws a key's row (keySpend), so it weighs nothing on the core.
+// editor draws a key's row (renderKeyAccounts), so it weighs nothing on the core.
+import { keyQuotaFill } from "./keyquota.js";
+
 const usdText = (v) => "$" + (v >= 100 ? v.toFixed(0) : v.toFixed(2));
 const SPEND_PERIODS = { day: "a day", month: "a month", total: "in all" };
 function keySpendPill(p, k) {
@@ -51,6 +53,7 @@ function keySpendLine(k) {
 // keySpendFill puts key k's spend cap pill in its row, before the gap, and
 // its held line under the row's other lines
 window.keySpendFill = function (row, p, k) {
+  keyQuotaFill(row, p, k);
   // and its typed balance, in keybalance.js, for a provider that takes one
   if (window.keyBalanceFill) keyBalanceFill(row, p, k);
   else if (p.takesOwnBalance) import("./keybalance.js").then(() => keyBalanceFill(row, p, k), () => {});

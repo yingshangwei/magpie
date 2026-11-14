@@ -5463,3 +5463,7 @@ body.linux .action-confirm::backdrop { -webkit-backdrop-filter: none; backdrop-f
 .sync-preview .sync-item { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
 .sync-preview .sync-item span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sync-preview .sync-item .sub, .sync-preview .sync-items > .sub, .sync-preview .lib-confirm.sub { color: var(--muted); }
+
+/* Key accounts share the subscription meters; their refresh stays visible. */
+.accts.keys .key-quota-refresh { flex-shrink: 0; width: 14px; opacity: 1; }
+.accts.keys .key-quota-mode { flex-shrink: 0; font-size: 10.5px; }

@@ -554,9 +554,25 @@ and `TestHistoricalWindowHoldsUsesEachWindowsOwnReading`.
   `TestClaudeSwitchWaitsForClaudeCodesRefresh`,
   `TestClaudeSwitchStaleAndHeldLocks`.
 
+## Key allowance rows
+
+The provider editor's enabled API-key rows with `usageCap` show the same
+small allowance meters as subscription accounts (`assets/keyquota.js`).
+They reuse the Usage cards, matching provider ID and the enabled key's
+name or mask; a single enabled key matches the unnamed card. Duplicate
+labels and disabled keys are not assigned another key's card. Missing or
+failed readings say so instead of displaying zero usage.
+
+Opening the editor reads cached cards through the existing quota loader,
+respecting `quotaReads=asked`. Each row's refresh reads that card explicitly;
+Used/Left shares the existing display preference. Completed reads replace
+only meters, keeping account edits, focus and scrolling in place. Additional
+model-specific windows remain in the meter tooltip, as on subscription rows.
+
 ## Verification
 
 ```sh
+node --test internal/gui/tests/key-quotas.test.cjs
 go test -tags nogui ./internal/provider -run 'GoesThroughItsProxy'
 go test -tags nogui ./internal/provider -run 'TestClaudeSwitchTakesTheAccountsProxy|TestClaudeAccountProxy'
 go test -tags nogui ./internal/plugin -run TestPluginSignInProxy
