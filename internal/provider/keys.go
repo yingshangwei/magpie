@@ -130,6 +130,9 @@ func (p Provider) RestKeys() func(KeyInfo) string {
 // severalOn is len(p.KeysOn()) > 1 without listing them: a key on after
 // the first that isn't the first again.
 func (p Provider) severalOn() bool {
+	if p.keyAliasID != "" {
+		return p.keyAliasOf > 1
+	}
 	if p.Key == "" {
 		return false
 	}
@@ -456,6 +459,7 @@ func (k KeyAccount) WeightOf() int { return max(k.Weight, 1) }
 func (p Provider) WithKey(k KeyAccount) Provider {
 	p.Key, p.KeyName, p.KeyProtocol, p.KeyWeight, p.KeyPlan = k.Key, k.Name, k.Protocol, k.Weight, k.Plan
 	p = p.atKeyPlan(k.Plan)
+	p = p.atKeyEndpoints(keyID(k.Key))
 	p.keyView = true
 	if k.Protocol != "" {
 		for _, pr := range Protocols {
@@ -681,6 +685,12 @@ func ReplaceKey(id, keyRef, key string) (was, now string, err error) {
 	moveKeyed(p.AccountModels, keyRef, now)
 	moveKeyed(p.AccountModelsAll, keyRef, now)
 	moveKeyed(p.AccountProxies, keyRef, now)
+	moveKeyed(p.AccountEndpoints, keyRef, now)
+	for alias, id := range p.KeyAliases {
+		if id == keyRef {
+			p.KeyAliases[alias] = now
+		}
+	}
 	moveKeyed(p.AccountConcurrency, keyRef, now)
 	moveKeyed(p.KeySpendCaps, keyRef, now)
 	moveKeyed(p.AccountCaps, keyRef, now)

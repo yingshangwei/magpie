@@ -538,6 +538,11 @@ type Provider struct {
 	// case, a key by its KeyID. One not in it follows Proxy (see
 	// ProxyChoice).
 	AccountProxies map[string]string `json:"accountProxies,omitempty"`
+	// AccountEndpoints replaces the endpoint set for one API key. An absent
+	// entry inherits this provider; a present entry never falls back to another site.
+	AccountEndpoints map[string]KeyEndpoints `json:"accountEndpoints,omitempty"`
+	// KeyAliases preserves former provider ids as routes to their original key.
+	KeyAliases map[string]string `json:"keyAliases,omitempty"`
 	// AccountModels is, for a provider holding several accounts or keys,
 	// the models each one the user narrowed serves, and no others (#474):
 	// an account by its name in lower case, a key by its KeyID. One not in
@@ -750,6 +755,10 @@ type Provider struct {
 	// Account is set when the provider is an agent the user signed in to
 	// (see account.go); it is derived, never stored.
 	Account *Account `json:"-"`
+
+	// A former provider keeps the owning pool's cooldown identity.
+	keyAliasID string
+	keyAliasOf int
 
 	// keyView is set on p.WithKey(k): p as that one key is asked with,
 	// at its plan, whose keys no longer tell plans apart (plansMixed)
@@ -1023,6 +1032,8 @@ func (p Provider) clone() Provider {
 	p.AccountWeights = maps.Clone(p.AccountWeights)
 	p.Contexts = maps.Clone(p.Contexts)
 	p.AccountModelsAll = maps.Clone(p.AccountModelsAll)
+	p.AccountEndpoints = maps.Clone(p.AccountEndpoints)
+	p.KeyAliases = maps.Clone(p.KeyAliases)
 	if p.AccountModels != nil {
 		m := make(map[string][]string, len(p.AccountModels))
 		for k, v := range p.AccountModels {
@@ -1228,6 +1239,11 @@ func lookIn(all []Provider, id string) *Provider {
 		}
 	}
 	for _, p := range all {
+		if a, ok := p.keyAlias(q); ok {
+			return &a
+		}
+	}
+	for _, p := range all {
 		if slices.Contains(p.Was, q) {
 			return &p
 		}
@@ -1291,6 +1307,12 @@ func Save(p Provider) error {
 		return errAutoID
 	}
 	if err := settings.CheckProxy(p.Proxy); err != nil {
+		return err
+	}
+	if p.keyAliasID != "" {
+		return errors.New("edit the owning provider, not a former provider alias")
+	}
+	if err := checkAccountEndpoints(p); err != nil {
 		return err
 	}
 	if err := checkAccountProxies(p.AccountProxies); err != nil {

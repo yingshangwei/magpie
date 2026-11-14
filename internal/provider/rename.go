@@ -177,6 +177,13 @@ func renamedRef(ref, from, to string) string {
 // RenamedRef is ref with the provider it names by an id the provider had
 // named by the id it has now.
 func RenamedRef(ref string) string {
+	// Former providers merged as keys still name that key, not the pool.
+	pid, _, _ := strings.Cut(strings.TrimPrefix(ref, "magpie/"), "/")
+	for _, p := range storedFile().Providers {
+		if _, ok := p.KeyAliases[pid]; ok {
+			return ref
+		}
+	}
 	for old, now := range Renamed() {
 		if r := renamedRef(ref, old, now); r != ref {
 			return r

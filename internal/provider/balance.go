@@ -1687,8 +1687,8 @@ func KeyBalances(ctx context.Context) []SubscriptionQuota {
 		// provider read some other way (ClinePass) keeps its card
 		keyCard := func(q Provider) bool { return !ok || hasBalanceSource(q) }
 		if others == 0 {
-			if keyCard(p.atKeyPlan(p.KeyPlan)) {
-				jobs = append(jobs, job{p, "", false})
+			if q := p.WithKey(p.first()); keyCard(q) {
+				jobs = append(jobs, job{q, "", false})
 			}
 			continue
 		}
@@ -1698,14 +1698,14 @@ func KeyBalances(ctx context.Context) []SubscriptionQuota {
 		}
 		// each key asked at its own plan's host (KeyAccount.Plan):
 		// SiliconFlow's China key and its international one
-		if q := p.atKeyPlan(p.KeyPlan); keyCard(q) {
+		if q := p.WithKey(p.first()); keyCard(q) {
 			jobs = append(jobs, job{q, first, false})
 		}
 		for _, k := range p.Keys {
 			if k.Off || k.Key == "" || k.Key == p.Key {
 				continue
 			}
-			q := p.atKeyPlan(k.Plan)
+			q := p.WithKey(k)
 			q.Key = k.Key
 			if !keyCard(q) {
 				continue

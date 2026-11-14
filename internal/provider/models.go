@@ -836,7 +836,10 @@ type fetched struct {
 // answered left every other endpoint's models out of the catalog, and so out
 // of the agents' model lists and of a model's own protocol setting.
 func (p Provider) fetchOne(ctx context.Context) (fetched, error) {
-	ctx = p.ownRequests(ctx, probelog.KindList) // a detection's list too
+	if !p.keyView && p.Account == nil && len(p.AccountEndpoints) > 0 {
+		p = p.WithKey(p.first())
+	}
+	ctx = p.ownRequests(p.Via(ctx), probelog.KindList) // a detection's list too
 	if u := strings.TrimSpace(p.ModelsURL); u != "" {
 		// asked where the user said, and nowhere else: the base URLs
 		// list nothing, or the wrong thing

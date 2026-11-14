@@ -825,7 +825,7 @@ func PlanQuotas(ctx context.Context) []SubscriptionQuota {
 		for _, k := range keys {
 			// each key told at its own plan's source: a GLM Coding Plan
 			// key beside a pay-as-you-go one (KeyAccount.Plan)
-			q := p.atKeyPlan(k.Plan)
+			q := p.WithKey(k)
 			src, ok := planQuotaSourceOf(q)
 			if !ok {
 				continue

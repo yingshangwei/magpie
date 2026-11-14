@@ -91,6 +91,33 @@ keys and accounts per request is in [Gateway routing and fallback](gateway-routi
 | A pasted curl command | A curl command from a vendor's docs pasted into a custom provider's Base URL or API key fills the editor in (@mark_li21 on X). `curlOf` reads it as a shell would (lines joined by `\`, cmd's `^` or PowerShell's backtick; `curl.exe`; quotes and escapes), and takes: the API its URL's endpoint names (`…/chat/completions` Chat, `…/messages` Anthropic Messages, `…/responses` Responses) with the base URL before it, spelled as that API wants it (`respellURL`: Anthropic at its root, `/v1` after a bare host); the key from `Authorization: Bearer`, `x-api-key` or `api-key`, unless it only stands for one (`$OPENAI_API_KEY`, `${X}`, `%X%`, `<token>`, `YOUR_API_KEY`), when the key's box is left empty and focused; and the `model` of its JSON body, added to a new provider's models (a saved one's picks are left alone, since adding to none would narrow what it serves). A preset's editor takes only the key. A note (`editorError`, kind `note`) says what was taken, a placeholder like `{WorkspaceId}` left in the URL, and a URL with no known endpoint. Text that isn't a curl command pastes as before, several keys included. Tested on the docs' own examples (`fixtures/curl`). | [`app.js`](../../internal/gui/assets/app.js) (`curlOf`, `fromCurl`), [`provider-curl-paste.test.cjs`](../../internal/gui/tests/provider-curl-paste.test.cjs) |
 | Saved proxies | `settings.Proxies` holds named proxies (`NamedProxy`: id, name, address, optional login), kept in Settings › Network. Wherever a proxy is chosen (global, plugin downloads, app updates, a provider, a key, a Claude account) the value is "" (inherit), `direct`, an address as typed, or `@<id>` for a saved one (@tsingchao on X). Addresses as typed are untouched. App updates take a proxy of their own, Settings › Network › App updates (`settings.UpdateProxy`, `magpie settings set updateProxy <url|direct>`; moonlityu on X: models direct, updates through a proxy): "" follows the global proxy as before, a proxy given to one `magpie update --proxy` run comes first, and it covers the feed, the notes and the release's file (`updateProxy` in [`update.go`](../../internal/update/update.go); `TestUpdateTakesItsOwnProxy`, `settings-update-proxy.test.cjs`). Per-model proxies within one provider are not offered: a proxy belongs to a provider, an account or a key, and a model that needs the other route is a second provider on the same URL. `netproxy.Parse`, `Resolve`, `Redact`, `EnvWith` and `Dispatch` resolve an `@id` at the lowest layer, so an edit reaches every user at the next request; a Claude Code `settings.json` env is a snapshot and is rewritten after an edit (`provider.ProxyEdited`). An `@id` this computer lacks fails closed (`netproxy.DeadProxy`, the request error and the provider row say "Proxy missing: {name}", `provider.ProxyGone`); it never goes direct. The password is written to settings.json (0600) and never read back by the page, logged or put in `Settings` sync; the list rides with the providers part of a sync (`backup.Bundle.Proxies`, `settings.MergeProxies`, passwords only with keys). A proxy in use cannot be deleted (409). `TestSavedProxyChoice`, `TestDanglingProxyReferenceFailsClosed`, `TestSavedProxiesTravelWithProviders`, `saved-proxies.test.cjs`, `provider-proxy-missing.test.cjs`. | [`proxies.go`](../../internal/settings/proxies.go), [`netproxy.go`](../../internal/netproxy/netproxy.go), [`proxies.go`](../../internal/gui/proxies.go) |
 
+### Accounts at different API sites
+
+A custom keyed provider may set `accountEndpoints`, indexed by `KeyID`.
+Each entry is the complete Chat, Responses, Anthropic and Gemini endpoint
+set for that key, with an optional `modelsURL`. An absent entry inherits the
+provider; an omitted protocol in a present entry is unavailable. Requests,
+model discovery and quota cards resolve this through `Provider.WithKey`.
+Provider-level balance and decision URLs are not inherited across sites.
+Account proxies and model allowlists remain independent. The Accounts row's
+Base URL control edits the selected protocol; clearing it restores provider
+inheritance. Provider edits retain these overrides, and rotating a key moves
+them to the replacement fingerprint.
+
+A migration can retain former supplier IDs in `keyAliases` (old provider ID
+to key fingerprint), alongside `was` for historical usage aggregation.
+Old direct model references resolve to that key alone and retain its account
+cooldown identity; disabled or removed keys cannot fall through to the pool.
+Alias views cannot be saved as the owning provider. Routing groups should
+use `provider/model#key-id` to preserve each account's exact position, including
+other suppliers between those positions. No migration runs automatically.
+See [`key_endpoints.go`](../../internal/provider/key_endpoints.go),
+[`keys.go`](../../internal/provider/keys.go), [`models.go`](../../internal/provider/models.go),
+[`planquota.go`](../../internal/provider/planquota.go) and [`rename.go`](../../internal/provider/rename.go).
+`TestKeyEndpoint*` verifies separate sites, proxies, quota cards, key rotation,
+legacy references and group fallback order; `key-endpoints.test.cjs` covers the
+editor in both browser engines and all five languages.
+
 ### AsterGate shared account windows
 
 A keyed provider at `https://astergate.cc` or `https://beta.astergate.cc`,

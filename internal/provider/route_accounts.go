@@ -141,7 +141,11 @@ func (p Provider) KeysFor(model string, held func(KeyOn) bool) (out, unlisted, b
 			}
 			continue // made for a protocol this provider has no endpoint for
 		}
-		ko := KeyOn{KeyAccount: k, Rank: i, Of: len(keys)}
+		of := len(keys)
+		if p.keyAliasID != "" {
+			of = p.keyAliasOf
+		}
+		ko := KeyOn{KeyAccount: k, Rank: i, Of: of}
 		switch {
 		case !p.AccountServes(keyID(k.Key), model):
 			barred = append(barred, ko)

@@ -14987,10 +14987,11 @@ function renderKeyAccounts(p) {
       row.classList.add("resting");
     }
     if (k.on && several) row.append(keyWeight(p, k, weightOf(k), weights));
-    const proto = protoPicker(p, k.protocol, (v) => accountAction("keys/protocol", { id: p.id, ref: k.id, protocol: v }));
+    const proto = protoPicker(p.accountEndpoints?.[k.id] || p, k.protocol, (v) => accountAction("keys/protocol", { id: p.id, ref: k.id, protocol: v }));
     if (proto) row.append(proto);
     const plan = planPicker(p, k, several);
     if (plan) row.append(plan);
+    if (!p.preset) row.append(keyEndpoint(p, k));
     // set to a protocol the provider has no URL for (#1702): the gateway
     // can't send it there, so the row says so rather than the request
     // quietly going out on another URL
@@ -15294,7 +15295,7 @@ const PROTO_OPTS = [
 // keyLacksURL is the protocol a key is set to when its provider has no URL
 // for it (the pill's own name), else "".
 function keyLacksURL(p, k) {
-  if (!["anthropic", "chat", "responses", "gemini"].includes(k.protocol) || p[k.protocol]) return "";
+  if (!["anthropic", "chat", "responses", "gemini"].includes(k.protocol) || (p.accountEndpoints?.[k.id] || p)[k.protocol]) return "";
   return t(PROTO_OPTS.find((o) => o.v === k.protocol).pill);
 }
 
@@ -15306,6 +15307,9 @@ function protoPicker(p, value, onChange) {
   if (have.length < 2 && !value) return null;
   return pickPill(PROTO_OPTS.filter((o) => !o.v || have.includes(o.v) || o.v === value), value, "", "Some relays give out a key per protocol. Set it here and the gateway sends each request to the key that fits: Claude models to the Anthropic key, GPT models to the OpenAI one.", undefined, onChange);
 }
+
+// Loaded only when a custom provider's account rows open.
+const keyEndpoint = (p, k, at = el("button", "proto key-endpoint", t("Base URL"))) => (at.disabled = true, import("./keyendpoints.js").then(() => accountEndpoint(p, k, at), statusErr), at);
 
 // planPicker is the key row's plan badge, for a vendor whose plans take
 // keys of their own (keyPlans): each key goes to its plan's endpoints.
