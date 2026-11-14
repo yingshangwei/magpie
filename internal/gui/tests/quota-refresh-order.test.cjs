@@ -20,6 +20,7 @@ function page(m = "window") {
   vm.runInContext(`
     let quotas = [], quotasAt = 0, quotasKept = false, quotaHist = [], quotasAskedAt = 0, view = "usage";
     const mode = ${JSON.stringify(m)}; // the tray panel ("panel") also keeps each reading (#3160)
+    const state = {}; // this fixture has no panel account discovery
     const saved = [], localStorage = { setItem: (k, v) => saved.push([k, v]), getItem: () => null };
     const requests = [], errors = [];
     const usageAcctKey = q => q.provider + "\\n" + (q.user || "").toLowerCase();
@@ -38,7 +39,7 @@ function page(m = "window") {
       if (path.includes("history")) return Promise.resolve([]);
       return new Promise((resolve, reject) => requests.push({ path, resolve, reject }));
     }
-    ${section("let quotasLoading =", "// A period of picked days is")}
+    ${section("let quotasLoading =", "function periodDays(")}
     ${section("const quotaRefreshing =", "// familyQuota:")}
     globalThis.p = {
       requests, errors,
