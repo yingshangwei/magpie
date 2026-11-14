@@ -54,9 +54,10 @@ func (m *memberRetry) pause(now time.Time) (time.Duration, bool) {
 // memberRetryable leaves invalid requests, revoked credentials and
 // refusals to their existing handling. Only a held transient error may be
 // replayed; a reply already sent never is. A 429 naming quota can be a
-// relay's pool that has another account shortly.
+// relay's pool that has another account shortly. A remote's own routed
+// failure has already spent its retries and is left to local fallback.
 func memberRetryable(h *holdWriter) bool {
-	if !h.failed() || h.refused || h.turnedAway ||
+	if !h.failed() || routedThere(h.header) || h.refused || h.turnedAway ||
 		protectionRefused(h.code(), h.errBody()) ||
 		shapeRefused(h.code(), h.errBody()) {
 		return false

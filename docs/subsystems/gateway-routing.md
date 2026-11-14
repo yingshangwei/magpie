@@ -44,7 +44,11 @@ or 5xx held before the reply began is retried on the same account before it
 rests, sinks or another member is selected; invalid requests, auth and
 credit refusals, safety and shape refusals, turned-away prompts, peer
 exchange interruptions and replies already sent keep their ordinary
-handling. The `maxWait` window starts at each member's first transient failure, when
+handling. A remote's failure marked as already routed
+is not replayed by the policy: its retries and fallback have already run,
+so the next local member is asked. An unreachable remote or a refusal
+before remote routing keeps the ordinary retry rules.
+The `maxWait` window starts at each member's first transient failure, when
 it enters the retry schedule. Its first attempt keeps the upstream's ordinary
 wait behavior. During retries the same window covers fixed pauses, gateway
 key, near-cap, account/lane and RPM queues, and waiting for the upstream. A
@@ -3192,7 +3196,8 @@ text already masked.
   the remote's masking, of its own request only.
 - A failure the other magpie answered after its own routing names its
   provider (`X-Magpie-Provider`, kept as `answeredThereHeader` by
-  `keepRetry`). `passing` doesn't retry it on the same remote, and
+  `keepRetry`). Neither `passing` nor a group's `retryBeforeFallback`
+  retries it on the same remote, and
   patience doesn't put it in its next round (`routedThere`): the remote's
   own retries and patience had their turn. This magpie's other members
   are still asked, and a remote that can't be reached, or refuses before
