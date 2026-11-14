@@ -3670,13 +3670,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				goto memberReady
 			}
 			done, ok := s.nearCap.tryTake(c.who())
-			if !ok && i < len(cands)-1 && !nearBehind[c.who()] {
+			if !ok && i < len(cands)-1 && !nearBehind[c.who()] &&
+				(memberAgain == nil || memberAgain.start.IsZero()) {
 				nearBehind[c.who()] = true
 				cands = append(slices.Delete(slices.Clone(cands), i, i+1), c)
 				i--
 				continue
 			}
 			if !ok {
+				// After its first failure, keep this member through its
+				// retry window; memberCtx stops the wait when it ends.
 				// the wait is a known one (noteWait), and the Routing page
 				// says the turn is queued, not that routing goes on
 				// (tmr11235 on X: "路由中" until the turn before it ended)

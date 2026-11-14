@@ -48,6 +48,13 @@ handling. The `maxWait` window starts at each member's first transient failure, 
 it enters the retry schedule. Its first attempt keeps the upstream's ordinary
 wait behavior. During retries the same window covers fixed pauses, gateway
 key, near-cap, account/lane and RPM queues, and waiting for the upstream. A
+member already in its retry window keeps its place when its near-cap slot
+is busy, waiting in `memberCtx` under the same retry deadline so competing
+turns cannot force an early fallback. Before its first failure, a busy
+near-cap slot still gives way to the next ready member. The inherited lane
+rule differs: a policy member keeps its lane position even on its first
+attempt. A configured `QueueWait` can bound that lane wait; zero leaves it
+unbounded before the first failure starts the retry deadline. A
 pending retry is stopped at the deadline, recorded as a 504 and replaced by
 the next member. With no member left, the client receives a 504, or a terminal
 error event if its stream has begun; a reply that has begun is allowed to finish. While the policy
