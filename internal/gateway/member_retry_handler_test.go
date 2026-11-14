@@ -497,3 +497,60 @@ func TestMemberRetryReplyFinishesPastWindow(t *testing.T) {
 		t.Fatalf("reply cut at retry deadline: %d %s, calls %d", code, body, calls.Load())
 	}
 }
+
+func TestMemberRetryRemoteRoutedFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		routed bool
+		status int
+		want   int32
+	}{
+		{"routed-503", true, 503, 1},
+		{"before-routing-503", false, 503, 2},
+		{"before-routing-429", false, 429, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fresh(t)
+			forgetSinks(t)
+			var remoteCalls, fallbackCalls atomic.Int32
+			up := httptest.NewServer(withoutRootProbes(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.Copy(io.Discard, r.Body)
+				if r.Header.Get("Authorization") == "Bearer b" {
+					fallbackCalls.Add(1)
+					io.WriteString(w, chatOK)
+					return
+				}
+				remoteCalls.Add(1)
+				w.Header().Set("Content-Type", "application/json")
+				if tc.routed {
+					w.Header().Set(providerHeader, "fake")
+				}
+				w.WriteHeader(tc.status)
+				io.WriteString(w, `{"error":{"message":"temporarily unavailable","type":"server_error"}}`)
+			})))
+			defer up.Close()
+			if err := provider.Save(provider.Provider{ID: "office", Name: "Office", Preset: provider.RemoteMagpiePreset,
+				Key: "k", Chat: up.URL + "/v1", Models: []string{"fake/m1"}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := provider.Save(provider.Provider{ID: "b", Name: "B", Key: "b", Chat: up.URL, Models: []string{"m"}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := provider.SaveGroup(provider.Group{ID: "g", Name: "G", Members: []string{"office/fake/m1", "b/m"},
+				Routing: provider.Ordered, Affinity: provider.AffinityOff,
+				RetryBeforeFallback: &provider.RetryPolicy{Count: 1, Interval: 1, MaxWait: 30, Cooldown: 600}}); err != nil {
+				t.Fatal(err)
+			}
+			s := New()
+			code, body := postAs(t, s, "", `{"model":"group/g","messages":[{"role":"user","content":"hi"}]}`)
+			if code != 200 || remoteCalls.Load() != tc.want || fallbackCalls.Load() != 1 {
+				t.Fatalf("remote calls %d, want %d; fallback calls %d, want 1; reply %d %s",
+					remoteCalls.Load(), tc.want, fallbackCalls.Load(), code, body)
+			}
+			route := lastRoute(s)
+			if len(route.Tries) != int(tc.want)+1 || route.Status != 200 {
+				t.Fatalf("remote failure did not fall back as expected: %+v", route)
+			}
+		})
+	}
+}
