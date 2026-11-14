@@ -45,27 +45,37 @@ async function reach(page, locator) {
   if (!id) return;
   const v = await page.locator("#" + id).boundingBox();
   await page.mouse.move(v.x + v.width / 2, v.y + v.height / 2);
+  // found and read in one call (evaluateAll): locator.evaluate finds the
+  // control in one call and reads it in the next, and a part the page
+  // draws again in between (Routing's account rows, a row whose numbers
+  // moved) hands it the element just replaced, out of the page, a box of
+  // zeros at the window's top that reads as in sight (#2658)
+  const look = () => locator.evaluateAll((es) => {
+    const e = es.length === 1 ? es[0] : null, view = e?.closest(".view");
+    if (!view) return null;
+    const b = e.getBoundingClientRect(), v = view.getBoundingClientRect();
+    const x = b.left + b.width / 2, y = b.top + b.height / 2;
+    const inside = b.top >= v.top && b.bottom <= v.bottom, hit = document.elementFromPoint(x, y);
+    return { clear: inside && !!hit && (e === hit || e.contains(hit)), down: y > v.top + v.height / 2 };
+  });
   let stalls = 0;
   // 20px a wheel: 120 of them reached only 2,400px down, and once Settings'
   // lines wrapped whole (arculongus on Discord) Allowances' last account
   // was further than that at 420px. The view's end stops it sooner.
   for (let i = 0; i < 400; i++) {
-    // found and read in one call (evaluateAll): locator.evaluate finds the
-    // control in one call and reads it in the next, and a part the page
-    // draws again in between (Routing's account rows, a row whose numbers
-    // moved) hands it the element just replaced, out of the page, a box of
-    // zeros at the window's top that reads as in sight (#2658)
-    const at = await locator.evaluateAll((es) => {
-      const e = es.length === 1 ? es[0] : null, view = e?.closest(".view");
-      if (!view) return null;
-      const b = e.getBoundingClientRect(), v = view.getBoundingClientRect();
-      const x = b.left + b.width / 2, y = b.top + b.height / 2;
-      const inside = b.top >= v.top && b.bottom <= v.bottom, hit = document.elementFromPoint(x, y);
-      return { clear: inside && !!hit && (e === hit || e.contains(hit)), down: y > v.top + v.height / 2 };
-    });
+    const at = await look();
     // drawn again between two looks, or not drawn yet: look again
     if (!at) { await page.waitForTimeout(40); continue; }
-    if (at.clear) { await page.waitForTimeout(300); return; }
+    // clear, and still clear once the page has settled: the view's end
+    // buttons (.view-ends) come with the first scroll, from a module loaded
+    // then, and can land over a control that read clear a moment before;
+    // the press then waits on them till it times out (usage-fold in WebKit
+    // at 300px high). Covered by then, the wheel goes on.
+    if (at.clear) {
+      await page.waitForTimeout(300);
+      if ((await look())?.clear) return;
+      continue;
+    }
     // landed, or the view is at its end and the wheel moves nothing: three
     // of those in turn and the control can't be brought clear
     stalls = (await wheeled(page, id, at.down ? 20 : -20)) ? 0 : stalls + 1;
