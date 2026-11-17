@@ -50,7 +50,7 @@ func (h *remapHarness) calls(run *subscriptionRun, all bool, cs ...shownCall) []
 		h.b.calls[c.id] = run
 		h.b.mu.Unlock()
 	}
-	run.emit(Event{Kind: KStart, MsgID: "m", Model: "claude-sonnet-5"})
+	run.emit(Event{Kind: KStart, MsgID: "m", Model: run.model})
 	for _, c := range cs {
 		run.emit(Event{Kind: KToolStart, ID: c.id, Name: c.name})
 		run.emit(Event{Kind: KToolArgs, Text: c.args})
@@ -61,7 +61,7 @@ func (h *remapHarness) calls(run *subscriptionRun, all bool, cs ...shownCall) []
 }
 
 func (h *remapHarness) says(run *subscriptionRun, text string) {
-	run.emit(Event{Kind: KStart, MsgID: "m", Model: "claude-sonnet-5"})
+	run.emit(Event{Kind: KStart, MsgID: "m", Model: run.model})
 	run.emit(Event{Kind: KText, Text: text})
 	run.emit(Event{Kind: KStop, Stop: "stop"})
 	run.endSegment()
@@ -69,7 +69,7 @@ func (h *remapHarness) says(run *subscriptionRun, text string) {
 
 func (h *remapHarness) start(_ context.Context, req *Request) (*subscriptionRun, <-chan Event, error) {
 	h.mu.Lock()
-	run := &subscriptionRun{bridge: h.b, token: "run" + strconv.Itoa(len(h.started)), model: "claude-sonnet-5", pending: map[string]chan mcpToolResult{}}
+	run := &subscriptionRun{bridge: h.b, token: "run" + strconv.Itoa(len(h.started)), model: req.Model, pending: map[string]chan mcpToolResult{}}
 	h.started = append(h.started, run)
 	h.mu.Unlock()
 	h.b.mu.Lock()
@@ -94,10 +94,15 @@ func (h *remapHarness) runs() int {
 // "text <text>".
 func (h *remapHarness) ask(msgs ...string) []string {
 	h.t.Helper()
-	body := `{"model":"claude-sonnet-5","max_tokens":100,"tools":[{"name":"read","input_schema":{"type":"object"}}],"messages":[` + strings.Join(msgs, ",") + `]}`
+	return h.askModel("claude-sonnet-5", msgs...)
+}
+
+func (h *remapHarness) askModel(model string, msgs ...string) []string {
+	h.t.Helper()
+	body := `{"model":` + strconv.Quote(model) + `,"max_tokens":100,"tools":[{"name":"read","input_schema":{"type":"object"}}],"messages":[` + strings.Join(msgs, ",") + `]}`
 	rec := httptest.NewRecorder()
 	var u Usage
-	if code, msg := h.s.serveSubscription(rec, httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body)), provider.Anthropic, "Claude Code", "claude-sonnet-5", "", []byte(body), &u, h.start); code != 200 {
+	if code, msg := h.s.serveSubscription(rec, httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body)), provider.Anthropic, "Claude Code", model, "", []byte(body), &u, h.start); code != 200 {
 		h.t.Fatalf("%d %s", code, msg)
 	}
 	var res struct {

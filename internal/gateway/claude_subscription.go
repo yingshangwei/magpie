@@ -5750,6 +5750,7 @@ const (
 	runExpired     = "process expired"
 	noRunWaiting   = "no run waiting"
 	accountChanged = "account changed"
+	modelChanged   = "model changed"
 	// another request has the run's calls answered, or is answering them
 	answeredElsewhere = "answered by another request"
 )
@@ -5829,6 +5830,12 @@ func (b *subscriptionBridge) match(req *Request) (*subscriptionRun, []Part, stri
 		}
 		b.mu.Unlock()
 		if found != nil {
+			// A client can switch models while answering the old model's
+			// calls. Leave that run waiting for its own caller or fork;
+			// this request needs a new run on the selected model.
+			if found.model != "" && req.Model != "" && found.model != req.Model {
+				return nil, nil, modelChanged
+			}
 			return found, fresh, byExactID
 		}
 		if before == nil {

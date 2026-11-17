@@ -74,3 +74,83 @@ func TestResultForACallNotMadeYetWaitsForIt(t *testing.T) {
 		t.Fatal("call_2 never had its result: the turn is stuck")
 	}
 }
+
+// A model switch can arrive with results for the previous model's calls.
+// Those IDs identify the old run, but must not override the selected model.
+func TestClaudeToolResultsKeepTheSelectedModel(t *testing.T) {
+	const opus, fable = "claude-opus-5-5", "claude-fable-5-2"
+	for _, ids := range []string{"exact", "remapped"} {
+		for _, selected := range []string{opus, fable} {
+			t.Run(ids+"/"+selected, func(t *testing.T) {
+				h := newRemapHarness(t)
+				done := make(chan struct{})
+				h.first = func(run *subscriptionRun, req *Request) {
+					waiters := h.calls(run, true, shownCall{"call-model", "read", `{}`})
+					go func() {
+						defer close(done)
+						if _, ok := <-waiters[0]; ok {
+							h.says(run, "answered by "+run.model)
+						}
+					}()
+				}
+				initial := remapUser("read the file")
+				if got := h.askModel(opus, initial); len(got) != 1 || got[0] != "tool_use call-model" {
+					t.Fatalf("first turn: %v", got)
+				}
+				t.Cleanup(func() {
+					h.b.abortAll()
+					<-done
+				})
+				h.first = func(run *subscriptionRun, req *Request) {
+					// A newly started run must receive the selected model and
+					// the conversation, including the old call's result.
+					if req.Model != selected || len(req.Messages) != 3 || req.Messages[2].Parts[0].Text != "file contents" {
+						t.Errorf("new run lost the requested model or tool history: model=%s, messages=%d", req.Model, len(req.Messages))
+					}
+					h.says(run, "answered by "+run.model)
+				}
+				callID := "call-model"
+				if ids == "remapped" {
+					callID = "client-model"
+				}
+				conv := []string{initial, remapCalls(callID + "={}"), remapResults(callID + "=file contents")}
+				got := h.askModel(selected, conv...)
+				if len(got) != 1 || got[0] != "text answered by "+selected {
+					t.Fatalf("selected %s, reply %v", selected, got)
+				}
+				wantRuns := 1
+				if selected != opus {
+					wantRuns = 2
+					// A fork still on Opus may answer the original calls. The
+					// switch must neither claim nor abort that waiting run.
+					select {
+					case <-done:
+						t.Fatal("model switch consumed or ended the old run")
+					default:
+					}
+					if got := h.askModel(opus, conv...); len(got) != 1 || got[0] != "text answered by "+opus {
+						t.Fatalf("original model's fork: %v", got)
+					}
+				}
+				if h.runs() != wantRuns {
+					t.Fatalf("started %d runs, want %d", h.runs(), wantRuns)
+				}
+			})
+		}
+	}
+}
+
+func TestClaudeToolResultsAllowUnspecifiedModel(t *testing.T) {
+	for _, models := range [][2]string{{"", "claude-fable-5-2"}, {"claude-opus-5-5", ""}, {"", ""}} {
+		b := newSubscriptionBridge()
+		run := &subscriptionRun{model: models[0]}
+		b.calls["call-model"] = run
+		req := &Request{Model: models[1], Messages: []Message{
+			{Role: "assistant", Parts: []Part{{Kind: ToolCall, ID: "call-model"}}},
+			{Role: "user", Parts: []Part{{Kind: ToolResult, CallID: "call-model", Text: "result"}}},
+		}}
+		if got, results, _ := b.match(req); got != run || len(results) != 1 {
+			t.Fatalf("models %q: matched=%v, results=%d", models, got == run, len(results))
+		}
+	}
+}

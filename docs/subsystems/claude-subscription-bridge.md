@@ -1851,6 +1851,18 @@ magpie doesn't do it.
 
 ## Tool results another request answers first
 
+Tool-call IDs identify the run that made the calls, but do not override
+this request's selected model. `match` reuses an exact-ID run only when
+its model and the request's resolved member model agree, or one is
+unspecified, the same compatibility rule as `remap`. When both models are
+known and differ, it logs `model changed` and leaves the old run unclaimed
+and waiting for its original caller or fork. The new request takes the
+existing branch/history path and starts a process with the selected model.
+`TestClaudeToolResultsKeepTheSelectedModel` covers switches and same-model
+continuations with exact and rewritten IDs, and the old model's fork
+continuing afterward. `TestClaudeToolResultsAllowUnspecifiedModel` holds
+the unspecified-model compatibility case.
+
 A request with tool results finds the run waiting on those calls (`match`)
 and claims it (`claimResume`) until the reply it is resumed for ends. More
 than one request can carry results for the same calls: Claude Code's fork
