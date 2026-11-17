@@ -60,7 +60,7 @@ func TestClaudeTUISlowStartAnswered(t *testing.T) {
 // turn tries the interactive mode again.
 func TestClaudeTUIHungHelperNeverPrint(t *testing.T) {
 	was := tuiInitWait
-	tuiInitWait = time.Second
+	tuiInitWait = 5 * time.Second
 	t.Cleanup(func() { tuiInitWait = was })
 	h, started := tuiHelperHarness(t, "exec sleep 600")
 	code, msg := h.askCode("rules", "hi")
