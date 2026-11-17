@@ -2,9 +2,11 @@ package library
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	toml "github.com/pelletier/go-toml/v2"
 	"github.com/yetone/magpie/internal/agent"
 )
 
@@ -87,10 +89,20 @@ func TestCodexOffKeepsAppsOwnConfig(t *testing.T) {
 				t.Fatal(err)
 			}
 			off := read(t, path)
-			for _, l := range strings.Split(codexAppOwnConfig, "\n") {
-				if l = strings.TrimSpace(l); l != "" && !strings.Contains(off, l) {
-					t.Errorf("lost %q", l)
-				}
+			// TOML may encode env as an inline table. Compare the settings,
+			// including every app-owned field, rather than their spelling.
+			var want, got map[string]any
+			if err := toml.Unmarshal([]byte(codexAppOwnConfig), &want); err != nil {
+				t.Fatal(err)
+			}
+			if err := toml.Unmarshal([]byte(off), &got); err != nil {
+				t.Fatal(err)
+			}
+			if servers, ok := got["mcp_servers"].(map[string]any); ok {
+				delete(servers, "mem") // the server this test added
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Error("the app's settings changed after disconnecting")
 			}
 			if t.Failed() {
 				t.Logf("on magpie:\n%s\n\noff:\n%s", on, off)
