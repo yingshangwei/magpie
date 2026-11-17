@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/yetone/magpie/internal/gateway"
+	"github.com/yetone/magpie/internal/settings"
 )
 
 // magpie healthcheck, a container's HEALTHCHECK, passes only while a
@@ -89,6 +90,20 @@ func fakeServing(t *testing.T, pid int) string {
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("MAGPIE_ADDR", "")
+	// A rejected or absent note falls back to Settings' address. Keep
+	// that fallback in the sandbox too, away from a live gateway on 3425.
+	fallback := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		conn.Close() // a reserved port that serves no gateway
+	}))
+	t.Cleanup(fallback.Close)
+	if err := settings.Save(settings.Settings{Port: fallback.Listener.Addr().(*net.TCPAddr).Port}); err != nil {
+		t.Fatal(err)
+	}
 	m := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			w.Write([]byte(`{"state":"restarting","version":"v9.9.9"}`))
