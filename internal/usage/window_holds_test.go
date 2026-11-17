@@ -19,6 +19,15 @@ import (
 func holdsHome(t *testing.T) {
 	t.Helper()
 	sessionHome(t)
+	// Each sandbox starts as a new process: another test's simulated
+	// clock must not throttle this home's first persistence write.
+	resetCarry := func() {
+		carry.Lock()
+		carry.path, carry.m, carry.dirty, carry.wroteAt = "", nil, false, time.Time{}
+		carry.Unlock()
+	}
+	resetCarry()
+	t.Cleanup(resetCarry)
 	catalog.Reset()
 	t.Cleanup(catalog.Reset)
 	os.MkdirAll(filepath.Dir(catalog.CachePath()), 0700)
