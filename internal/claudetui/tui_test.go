@@ -1051,7 +1051,13 @@ func TestShimEndsAtItsCallersDeadline(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			start := time.Now()
-			by := start.Add(3 * time.Second).UnixMilli()
+			wait := 3 * time.Second
+			if c.name == "banner, no /usage panel" {
+				// Leave room for startup and /usage key handling before
+				// the banner is drawn. Other cases have shorter own waits.
+				wait = 8 * time.Second
+			}
+			by := start.Add(wait).UnixMilli()
 			out, stderr, err := runEndsTold(t, t.TempDir(), append(c.env, DeadlineEnv+"="+strconv.FormatInt(by, 10)), c.line)
 			d := time.Since(start)
 			if err == nil || strings.Contains(out, `"type":"result"`) {
@@ -1062,8 +1068,8 @@ func TestShimEndsAtItsCallersDeadline(t *testing.T) {
 			}
 			// at the deadline, with room for a slow machine to start it,
 			// and well before the helper's own waits (20s, 45s)
-			if d < 2500*time.Millisecond || d > 15*time.Second {
-				t.Fatalf("ended after %s, the deadline 3s", d)
+			if d < wait-500*time.Millisecond || d > 15*time.Second {
+				t.Fatalf("ended after %s, the deadline %s", d, wait)
 			}
 		})
 	}
