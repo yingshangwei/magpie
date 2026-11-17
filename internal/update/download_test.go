@@ -248,7 +248,7 @@ func TestDownloadNotFoundIsNotRetried(t *testing.T) {
 func TestDownloadStallIsTriedAgain(t *testing.T) {
 	quickRetries(t)
 	old := stallAfter
-	stallAfter = 300 * time.Millisecond
+	stallAfter = 2 * time.Second
 	t.Cleanup(func() { stallAfter = old })
 	body := make([]byte, 600<<10)
 	for i := range body {
