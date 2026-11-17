@@ -33,7 +33,9 @@ func TestNoEagerPackageRegexps(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if path != "." && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata" || d.Name() == "node_modules" || d.Name() == "site") {
+			// Vendored modules retain their upstream implementations; this
+			// guard applies to the application's own package initializers.
+			if path != "." && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata" || d.Name() == "node_modules" || d.Name() == "site" || d.Name() == "third_party") {
 				return filepath.SkipDir
 			}
 			return nil
