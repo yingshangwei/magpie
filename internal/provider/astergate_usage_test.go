@@ -366,6 +366,39 @@ func TestAsterGateIdleWindow(t *testing.T) {
 	}
 }
 
+func TestAsterGateReportWithoutFiveHourWindow(t *testing.T) {
+	now := time.Now().UTC()
+	var report map[string]any
+	if err := json.Unmarshal([]byte(asterGateReport(now)), &report); err != nil {
+		t.Fatal(err)
+	}
+	account := report["accounts"].([]any)[0].(map[string]any)
+	windows := account["windows"].([]any)
+	account["windows"] = windows[1:] // Only the account and Fable weeks are reported.
+	b, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, id, err := readAsterGateReport(b)
+	if err != nil || id != "account-a" || len(r.ws) != 2 || !r.at.Equal(now.Add(-10*time.Minute)) {
+		t.Fatalf("lost weekly-only report: account=%q reading=%+v err=%v", id, r, err)
+	}
+	week, fable := r.ws[0], r.ws[1]
+	reset := now.Add(6 * 24 * time.Hour)
+	if week.Name != "7 days" || week.Model != "" || week.Used != 10 || week.ResetsAt == nil || !week.ResetsAt.Equal(reset) ||
+		fable.Model != "fable" || fable.Used != 100 || fable.ResetsAt == nil || !fable.ResetsAt.Equal(reset) {
+		t.Fatalf("wrong weekly quotas: %+v", r.ws)
+	}
+	account["windows"] = windows[2:] // A model limit alone says nothing about the account week.
+	b, err = json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, _, err := readAsterGateReport(b); err == nil || len(r.ws) != 0 {
+		t.Fatalf("accepted report without an account week: %+v", r)
+	}
+}
+
 func TestAsterGateWindowWithoutReset(t *testing.T) {
 	now := time.Now().UTC()
 	reset := fmt.Sprintf(`"resets_at":%q`, now.Add(time.Hour).Format(time.RFC3339Nano))

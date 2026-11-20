@@ -270,7 +270,8 @@ func readAsterGateReport(b []byte) (keyReading, string, error) {
 			r.at = w.Checked
 		}
 	}
-	if !seen["five_hour"] || !seen["weekly"] {
+	// Some accounts have only a weekly limit. Keep the windows they report.
+	if !seen["weekly"] {
 		return keyReading{}, "", fmt.Errorf("AsterGate usage: missing account windows")
 	}
 	return r, a.ID, nil

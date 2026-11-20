@@ -122,7 +122,7 @@ editor in both browser engines and all five languages.
 
 A keyed provider at `https://astergate.cc` or `https://beta.astergate.cc`,
 or a self-hosted HTTPS provider with an `agk_` key, reads its shared Claude
-account's 5-hour and weekly windows through that site's
+account's weekly quota and any reported 5-hour window through that site's
 `astergate-self-usage` v1 protocol. `asterGateBaseFor` keeps a self-hosted
 provider's configured path prefix, removing only a final `/v1`; for example,
 `https://gateway.example/astergate/v1` reads
